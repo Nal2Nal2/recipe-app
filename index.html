@@ -272,8 +272,19 @@ function render(){
 
 /* ---------- add from screenshots ---------- */
 let pending=[];
-$('pick').addEventListener('change',async e=>{
-  const files=[...e.target.files]; e.target.value=''; if(!files.length)return;
+$('pick').addEventListener('change',e=>{const files=[...e.target.files];e.target.value='';addFiles(files)});
+// 안드로이드 앱에서는 '+ 캡처 추가'를 누르면 갤러리 앱이 열려요
+document.querySelector('.fab').addEventListener('click',async e=>{
+  const G=NATIVE&&Cap.Plugins&&Cap.Plugins.GalleryPicker; if(!G)return;
+  e.preventDefault();
+  try{
+    const {files}=await G.pick(); if(!files||!files.length)return;
+    const list=await Promise.all(files.map(async(f,i)=>{const b=await (await fetch(Cap.convertFileSrc('file://'+f.path))).blob();return new File([b],`gallery_${i}.jpg`,{type:b.type||'image/jpeg'})}));
+    addFiles(list);
+  }catch(err){$('pick').click()}
+});
+async function addFiles(files){
+  if(!files.length)return;
   pending=files.map(f=>({id:uid(),file:f,name:'',cat:'',text:'',status:'읽는 중…',thumbU:''}));
   openPending();
   for(const p of pending){
@@ -289,7 +300,7 @@ $('pick').addEventListener('change',async e=>{
     }catch(err){p.status='사진을 읽지 못했어요';p.bad=true}
     drawPending();
   }
-});
+}
 function openPending(){
   openSheet(sh=>{
     sh.innerHTML=`<div><h4>레시피 ${pending.length}개 추가</h4><div class="sub">메뉴명과 카테고리를 확인하고 저장하세요.</div></div><div id="pendList"></div>

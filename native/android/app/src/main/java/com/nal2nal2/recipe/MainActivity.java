@@ -8,6 +8,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         // 사진 속 글자를 폰 안에서 읽어주는 기능을 웹 화면에 연결해요
         registerPlugin(TextReaderPlugin.class);
+        registerPlugin(GalleryPickerPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }
