@@ -177,8 +177,30 @@ body.selecting .fab{display:none}
 .steps li::marker{font-weight:700;color:var(--accent)}
 .imgs{display:flex;flex-direction:column;gap:8px}
 .eimgs{display:flex;gap:6px;flex-wrap:wrap}
-.eimg{width:64px;height:80px;border-radius:8px;background:var(--soft) center top/cover no-repeat;position:relative;border:1px solid var(--line)}
+.eimg{width:72px;height:90px;border-radius:8px;background:var(--soft) center top/cover no-repeat;position:relative;border:1px solid var(--line)}
 .eimg button{position:absolute;top:-6px;right:-6px;width:22px;height:22px;border-radius:50%;border:0;background:var(--ink);color:var(--bg);font-size:11px}
+.eimg .ecrop{top:auto;right:auto;bottom:4px;left:50%;transform:translateX(-50%);width:auto;height:auto;border-radius:6px;padding:3px 6px;font-size:11px;white-space:nowrap;background:rgba(0,0,0,.65);color:#fff}
+.crop{user-select:none;-webkit-user-select:none;position:fixed;inset:0;z-index:11;background:#111;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+.crop .bar{display:flex;align-items:center;gap:6px;padding:10px 12px;background:var(--bg);border-bottom:1px solid var(--line)}
+.crop .bar h3{margin:0;font-size:16px;flex:1}
+.crop .chint{margin:0;padding:6px 12px;color:#ccc;background:#111;font-size:12px}
+.cscroll{flex:1;overflow:auto;padding:22px;touch-action:pan-y}
+.cstage{position:relative;margin:0 auto;max-width:640px;user-select:none;-webkit-user-select:none}
+.cstage img{display:block;width:100%;height:auto;pointer-events:none}
+.cbox{position:absolute;box-shadow:0 0 0 9999px rgba(0,0,0,.55);outline:2px solid #fff}
+.cstage{overflow:hidden}
+.cbox i{position:absolute;width:34px;height:34px;touch-action:none}
+.cbox i::after{content:'';position:absolute;inset:9px;border:0 solid #fff}
+.cbox i[data-h=nw]{left:-6px;top:-6px}.cbox i[data-h=nw]::after{border-width:4px 0 0 4px}
+.cbox i[data-h=ne]{right:-6px;top:-6px}.cbox i[data-h=ne]::after{border-width:4px 4px 0 0}
+.cbox i[data-h=sw]{left:-6px;bottom:-6px}.cbox i[data-h=sw]::after{border-width:0 0 4px 4px}
+.cbox i[data-h=se]{right:-6px;bottom:-6px}.cbox i[data-h=se]::after{border-width:0 4px 4px 0}
+.cbox i[data-h=n],.cbox i[data-h=s]{left:50%;margin-left:-17px}.cbox i[data-h=n]{top:-8px}.cbox i[data-h=s]{bottom:-8px}
+.cbox i[data-h=w],.cbox i[data-h=e]{top:50%;margin-top:-17px}.cbox i[data-h=w]{left:-8px}.cbox i[data-h=e]{right:-8px}
+.cbox i[data-h=n]::after,.cbox i[data-h=s]::after{inset:14px 6px;background:#fff;border-radius:3px}
+.cbox i[data-h=w]::after,.cbox i[data-h=e]::after{inset:6px 14px;background:#fff;border-radius:3px}
+.cbox i[data-h=m]{left:50%;top:50%;width:44px;height:44px;margin:-22px 0 0 -22px;border-radius:50%;background:rgba(0,0,0,.5);color:#fff;font-style:normal;font-size:20px;display:grid;place-items:center}
+.cbox i[data-h=m]::after{display:none}
 .otext{width:100%;min-height:120px;border:0;border-top:1px solid var(--line);padding:10px 12px;font-size:13px;background:transparent;color:var(--ink);resize:vertical}
 </style>
 </head>
@@ -663,6 +685,50 @@ function carousel(slides,urlBag,size){
 function closeDetail(){$('detail').hidden=true;$('detail').innerHTML='';detailId=null}
 $('zoomClose').onclick=()=>{$('zoom').hidden=true};
 
+/* 사진 자르기: 남길 부분을 상자로 고르면 잘린 사진(Blob)을 돌려줘요. 그대로 두면 null */
+let cropCancel=null;
+function cropImage(blob){
+  return new Promise(async resolve=>{
+    const u=URL.createObjectURL(blob);
+    const ov=document.createElement('div'); ov.className='crop'; ov.setAttribute('role','dialog'); ov.setAttribute('aria-label','사진 자르기');
+    ov.innerHTML=`<div class="bar"><button type="button" class="iconbtn" data-a="x" aria-label="자르기 취소">✕</button><h3>사진 자르기</h3><button type="button" class="btn sm" data-a="r">처음대로</button><button type="button" class="btn primary sm" data-a="ok">완료</button></div>
+      <p class="chint">모서리·가장자리를 끌어 남길 부분을 정해요. 가운데 ✥를 끌면 상자가 옮겨져요.</p>
+      <div class="cscroll"><div class="cstage"><img alt="자를 사진"><div class="cbox">${['nw','ne','sw','se','n','s','w','e'].map(h=>`<i data-h="${h}"></i>`).join('')}<i data-h="m" aria-hidden="true">✥</i></div></div></div>`;
+    document.body.appendChild(ov);
+    const img=ov.querySelector('img'), stage=ov.querySelector('.cstage'), box=ov.querySelector('.cbox'), sc=ov.querySelector('.cscroll');
+    img.src=u; try{await img.decode()}catch(e){}
+    let R={x:0,y:0,w:1,h:1}; const MIN=0.04;
+    const draw=()=>{box.style.left=R.x*100+'%';box.style.top=R.y*100+'%';box.style.width=R.w*100+'%';box.style.height=R.h*100+'%'};
+    draw();
+    const pos=e=>{const b=stage.getBoundingClientRect();return {px:(e.clientX-b.left)/b.width,py:(e.clientY-b.top)/b.height}};
+    const cl=(v,a,b)=>Math.min(b,Math.max(a,v));
+    let drag=null;
+    box.addEventListener('pointerdown',e=>{const h=e.target.dataset&&e.target.dataset.h;if(!h)return;e.preventDefault();e.target.setPointerCapture(e.pointerId);drag={h,p0:pos(e),R0:Object.assign({},R)}});
+    box.addEventListener('pointermove',e=>{
+      if(!drag)return; const {px,py}=pos(e), H=drag.h, o=drag.R0;
+      if(H==='m'){R.x=cl(o.x+px-drag.p0.px,0,1-o.w);R.y=cl(o.y+py-drag.p0.py,0,1-o.h)}
+      else{
+        let l=R.x,t=R.y,r=R.x+R.w,b=R.y+R.h;
+        if(H.includes('w'))l=cl(px,0,r-MIN); if(H.includes('e'))r=cl(px,l+MIN,1);
+        if(H.includes('n'))t=cl(py,0,b-MIN); if(H.includes('s'))b=cl(py,t+MIN,1);
+        R={x:l,y:t,w:r-l,h:b-t};
+      }
+      draw();
+      const sb=sc.getBoundingClientRect(); if(e.clientY>sb.bottom-40)sc.scrollTop+=14; else if(e.clientY<sb.top+40)sc.scrollTop-=14;   // 긴 캡처는 끝으로 끌면 화면이 따라 내려가요
+    });
+    const end=()=>{drag=null}; box.addEventListener('pointerup',end); box.addEventListener('pointercancel',end);
+    const done=v=>{cropCancel=null;URL.revokeObjectURL(u);ov.remove();resolve(v)};
+    cropCancel=()=>done(null);
+    ov.querySelector('[data-a=x]').onclick=()=>done(null);
+    ov.querySelector('[data-a=r]').onclick=()=>{R={x:0,y:0,w:1,h:1};draw()};
+    ov.querySelector('[data-a=ok]').onclick=async()=>{
+      if(R.x<0.002&&R.y<0.002&&R.w>0.996&&R.h>0.996)return done(null);
+      const NW=img.naturalWidth,NH=img.naturalHeight, sx=Math.round(R.x*NW),sy=Math.round(R.y*NH),sw=Math.max(1,Math.round(R.w*NW)),sh=Math.max(1,Math.round(R.h*NH));
+      const c=document.createElement('canvas'); c.width=sw; c.height=sh; c.getContext('2d').drawImage(img,sx,sy,sw,sh,0,0,sw,sh);
+      done(await toBlob(c,0.88));
+    };
+  });
+}
 function closeEdit(){const pg=$('editPage');pg.hidden=true;pg.innerHTML='';editURLs.forEach(u=>URL.revokeObjectURL(u));editURLs=[]}
 let editURLs=[];
 function openEditPage(build){
@@ -682,7 +748,7 @@ function openEdit(r){
       <label class="f">만드는 법 (한 줄에 한 단계씩)<textarea id="eSteps" rows="5">${esc((r.steps||[]).join('\n'))}</textarea></label>
       <button type="button" class="btn" id="eReparse">사진 속 글자로 재료·순서 다시 정리</button>
       <label class="f">메모<textarea id="eMemo" placeholder="간을 조금 줄였더니 좋았음 등">${esc(r.memo||'')}</textarea></label>
-      <div class="f">대표 사진<div class="cvrow"><div class="cvprev" id="eCv"></div><div class="cvbtns"><button type="button" class="btn sm" id="cvAuto">캡처에서 음식 사진 찾기</button><button type="button" class="btn sm" id="cvNone">캡처 그대로 쓰기</button><button type="button" class="btn sm" id="cvPick">갤러리에서 고르기</button></div></div><span class="st" id="cvSt"></span></div>
+      <div class="f">대표 사진<div class="cvrow"><div class="cvprev" id="eCv"></div><div class="cvbtns"><button type="button" class="btn sm" id="cvAuto">캡처에서 음식 사진 찾기</button><button type="button" class="btn sm" id="cvNone">캡처 그대로 쓰기</button><button type="button" class="btn sm" id="cvPick">갤러리에서 고르기</button><button type="button" class="btn sm" id="cvCrop">✂ 직접 잘라 정하기</button></div></div><span class="st" id="cvSt"></span></div>
       <div class="f">캡처<div class="eimgs" id="eImgs"></div><button type="button" class="btn" id="eAddImg">+ 캡처 더 붙이기</button><span class="st" id="eImgSt"></span></div>
       <details class="ocr"><summary>사진 속 글자 (검색에 쓰여요)</summary><textarea id="eText" class="otext">${esc(r.text||'')}</textarea></details>
       <div class="foot"><button type="button" class="btn primary" id="eSave">저장</button></div>
@@ -695,7 +761,12 @@ function openEdit(r){
       for(const iid of imgs){
         const it=document.createElement('div'); it.className='eimg';
         const a=added.find(x=>x.id===iid), o=a||await getImage(iid);
-        if(o){const u=URL.createObjectURL(o.thumb||o.full);it.style.backgroundImage=`url("${u}")`}
+        if(o){const u=URL.createObjectURL(o.thumb||o.full);it.style.backgroundImage=`url("${u}")`;
+          const cb=document.createElement('button');cb.type='button';cb.className='ecrop';cb.textContent='✂ 자르기';cb.setAttribute('aria-label','이 캡처 자르기');
+          cb.onclick=async()=>{const nb=await cropImage(o.full);if(!nb)return;const {i,u:tu}=await loadImg(nb);const th=await shrink(i,360,0.8);URL.revokeObjectURL(tu);
+            const ai=added.findIndex(x=>x.id===iid), rec={id:iid,full:nb,thumb:th}; if(ai>=0)added[ai]=rec; else added.push(rec);
+            sh.querySelector('#eImgSt').textContent='캡처를 잘랐어요 · 저장을 눌러야 반영돼요'; drawImgs(); drawCv()};
+          it.appendChild(cb)}
         if(imgs.length>1){const x=document.createElement('button');x.type='button';x.textContent='✕';x.setAttribute('aria-label','이 캡처 빼기');x.onclick=()=>{imgs.splice(imgs.indexOf(iid),1);removed.push(iid);drawImgs()};it.appendChild(x)}
         box.appendChild(it);
       }
@@ -717,6 +788,15 @@ function openEdit(r){
     };
     sh.querySelector('#cvNone').onclick=()=>{cvOp='none';sh.querySelector('#cvSt').textContent='캡처를 그대로 대표 사진으로 써요';drawCv()};
     sh.querySelector('#cvPick').onclick=async()=>{const f=(await pickImages())[0];if(!f)return;const {i,u}=await loadImg(f);cvOp=await shrink(i,900,0.86);URL.revokeObjectURL(u);sh.querySelector('#cvSt').textContent='고른 사진을 대표 사진으로 써요 · 저장을 눌러야 반영돼요';drawCv()};
+    sh.querySelector('#cvCrop').onclick=async()=>{
+      // 지금 대표 사진을 다시 자르거나, 대표 사진이 없으면 첫 캡처에서 음식 부분을 직접 잘라요
+      let src=null;
+      if(cvOp instanceof Blob)src=cvOp; else if(cvOp!=='none'&&r.cover){const o=await getImage('cover_'+r.id);if(o)src=o.full}
+      if(!src){const o=added.find(x=>x.id===imgs[0])||await getImage(imgs[0]);if(o)src=o.full}
+      if(!src)return; const nb=await cropImage(src); if(!nb)return;
+      const {i,u}=await loadImg(nb); cvOp=await shrink(i,900,0.86); URL.revokeObjectURL(u);
+      sh.querySelector('#cvSt').textContent='자른 사진을 대표 사진으로 써요 · 저장을 눌러야 반영돼요'; drawCv();
+    };
     $('eClose').onclick=closeEdit; $('eSaveTop').onclick=()=>sh.querySelector('#eSave').click();
     sh.querySelector('#eReparse').onclick=()=>{const pr=parseRecipe(sh.querySelector('#eText').value);sh.querySelector('#eIng').value=pr.ingredients.join('\n');sh.querySelector('#eSteps').value=pr.steps.join('\n');toast(`재료 ${pr.ingredients.length}개 · 순서 ${pr.steps.length}단계로 다시 정리했어요`)};
     sh.querySelector('#eAddImg').onclick=async()=>{
@@ -852,6 +932,7 @@ $('qx').onclick=()=>{$('q').value='';query='';$('qx').hidden=true;render()};
 /* 안드로이드 뒤로가기: 확대 → 창 → 상세 → 검색/카테고리 → 앱 닫기 */
 if(NATIVE&&Cap.Plugins&&Cap.Plugins.App){
   Cap.Plugins.App.addListener('backButton',()=>{
+    if(cropCancel){cropCancel();return}
     if(!$('zoom').hidden){$('zoom').hidden=true;return}
     if(!$('scrim').hidden){if(pending.length)pending=[];closeSheet();return}
     if(!$('editPage').hidden){closeEdit();return}
