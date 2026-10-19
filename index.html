@@ -147,6 +147,25 @@ body.selecting .fab{display:none}
 .mbtn{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:4px 9px;font-size:12px;font-weight:600}
 .mbtn.merge{border-color:var(--accent);color:var(--accent)}
 .hero.cover img{max-height:60vh;object-fit:cover}
+.car{position:relative;border-radius:14px;overflow:hidden;background:#111}
+.car .track{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.car .track::-webkit-scrollbar{display:none}
+.car .slide{flex:0 0 100%;scroll-snap-align:center;border:0;padding:0;background:#111;display:grid;place-items:center}
+.car.big .slide{height:min(68vh,560px)}
+.car.pane .slide{height:100%;display:block;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.car.pane .slide img{width:100%;max-width:none;max-height:none;height:auto}
+.car .slide img{max-width:100%;max-height:100%;object-fit:contain;display:block}
+.car .cbadge{position:absolute;left:10px;bottom:10px;background:rgba(0,0,0,.6);color:#fff;font-size:12px;border-radius:999px;padding:2px 9px}
+.car .cnav{position:absolute;top:50%;transform:translateY(-50%);border:0;width:34px;height:34px;border-radius:50%;background:rgba(0,0,0,.45);color:#fff;font-size:20px;line-height:1}
+.car .prev{left:8px}.car .next{right:8px}
+.page.edit{display:flex;flex-direction:column;overflow:hidden}
+.page.edit[hidden]{display:none!important}
+.page.edit .bar{position:static;flex:none}
+.epane{flex:none;height:38vh;background:#111}
+.epane .car{height:100%;border-radius:0}
+.epane .car .track{height:100%}
+.efold{flex:none;border:0;border-bottom:1px solid var(--line);background:var(--soft);color:var(--muted);font-size:12px;padding:5px}
+.escroll{flex:1;overflow:auto;padding:14px max(16px,env(safe-area-inset-left,0px)) 40px;display:flex;flex-direction:column;gap:14px;max-width:640px;width:100%;margin:0 auto}
 .cvrow{display:flex;gap:10px;align-items:flex-start}
 .cvprev{width:96px;height:96px;flex:none;border-radius:10px;background:var(--soft) center/cover no-repeat;border:1px solid var(--line);display:grid;place-items:end center;font-size:11px;color:#fff;text-shadow:0 1px 2px #000;padding-bottom:4px}
 .cvbtns{display:flex;flex-direction:column;gap:6px;min-width:0;flex:1}
@@ -178,6 +197,7 @@ body.selecting .fab{display:none}
 <div class="selbar" id="selBar" hidden></div>
 
 <section class="page" id="detail" hidden></section>
+<section class="page edit" id="editPage" hidden></section>
 <div class="zoom" id="zoom" hidden><img id="zoomImg" alt=""><button type="button" class="close" id="zoomClose" aria-label="닫기">✕</button></div>
 <div class="scrim" id="scrim" hidden><div class="sheet" id="sheet" role="dialog" aria-modal="true"></div></div>
 <div class="toast" id="toast" hidden><span id="toastMsg"></span><button type="button" id="toastUndo" hidden>되돌리기</button></div>
@@ -602,37 +622,60 @@ async function openDetail(id){
   const ing=r.ingredients||[], st=r.steps||[];
   pg.innerHTML=`<div class="bar"><button type="button" class="iconbtn" id="dBack" aria-label="뒤로">←</button><h3>${esc(r.name)}</h3><button type="button" class="iconbtn" id="dEdit" aria-label="편집">✎</button></div>
     <div class="body">
-      ${r.cover?'<button type="button" class="hero cover" id="dCover" aria-label="음식 사진 크게 보기"><img alt=""></button>':''}
+      <div id="dCar"></div>
       <h2 class="dname">${esc(r.name)}</h2>
       <div class="row"><span class="tag">${esc(r.cat)}</span><button type="button" class="favbtn" id="dFav" aria-pressed="${!!r.fav}">${r.fav?'★ 즐겨찾기':'☆ 즐겨찾기'}</button></div>
       <section class="blk"><h5>재료</h5>${ing.length?`<ul class="ing">${ing.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`:'<p class="fine">아직 정리된 재료가 없어요. ✎ 편집에서 적거나 사진을 보고 채워 주세요.</p>'}</section>
       <section class="blk"><h5>만드는 법</h5>${st.length?`<ol class="steps">${st.map(x=>`<li>${esc(x)}</li>`).join('')}</ol>`:'<p class="fine">아직 정리된 순서가 없어요.</p>'}</section>
       ${r.memo?`<section class="blk"><h5>메모</h5><div class="memo">${esc(r.memo)}</div></section>`:''}
-      <section class="blk"><h5>캡처 ${imgIds(r).length}장</h5><div id="dImgs" class="imgs"></div></section>
       ${r.text?`<details class="ocr"><summary>사진 속 글자 전체 보기</summary><pre>${esc(r.text)}</pre></details>`:''}
     </div>`;
   $('dBack').onclick=closeDetail;
   $('dEdit').onclick=()=>openEdit(r);
   $('dFav').onclick=async()=>{r.fav=!r.fav;await saveRecipe(r);const y=pg.scrollTop;await openDetail(r.id);pg.scrollTop=y;render()};
   detailURLs.forEach(u=>URL.revokeObjectURL(u)); detailURLs=[];
-  if(r.cover){const o=await getImage('cover_'+r.id);if(o){const u=URL.createObjectURL(o.full);detailURLs.push(u);const b=$('dCover');b.querySelector('img').src=u;b.querySelector('img').alt=r.name+' 음식 사진';b.onclick=()=>{$('zoomImg').src=u;$('zoom').hidden=false;$('zoom').scrollTop=0}}else $('dCover').remove()}
-  const box=$('dImgs');
-  for(const iid of imgIds(r)){
-    const o=await getImage(iid); if(!o)continue;
-    const u=URL.createObjectURL(o.full); detailURLs.push(u);
-    const b=document.createElement('button'); b.type='button'; b.className='hero'; b.setAttribute('aria-label','사진 크게 보기');
-    b.innerHTML=`<img alt="${esc(r.name)} 레시피 캡처">`; b.querySelector('img').src=u;
+  const slides=[];
+  if(r.cover){const o=await getImage('cover_'+r.id);if(o)slides.push({blob:o.full,label:'음식 사진'})}
+  const ids=imgIds(r);
+  for(let k=0;k<ids.length;k++){const o=await getImage(ids[k]);if(o)slides.push({blob:o.full,label:ids.length>1?`캡처 ${k+1}`:'캡처'})}
+  if(detailId!==id)return;
+  $('dCar').replaceWith(carousel(slides,detailURLs,'big'));
+}
+/* 사진 넘겨보기: 옆으로 밀거나 화살표, 누르면 크게 보기 */
+function carousel(slides,urlBag,size){
+  const wrap=document.createElement('div'); wrap.className='car '+(size||'');
+  if(!slides.length){wrap.innerHTML='<p class="fine">사진이 없어요</p>';return wrap}
+  wrap.innerHTML=`<div class="track"></div>${slides.length>1?'<button type="button" class="cnav prev" aria-label="이전 사진">‹</button><button type="button" class="cnav next" aria-label="다음 사진">›</button>':''}<div class="cbadge"><span class="ci">1</span>/${slides.length} · <span class="cl">${esc(slides[0].label)}</span>${size==='pane'?' · 위아래로 밀어 보기':''}</div>`;
+  const tr=wrap.querySelector('.track');
+  slides.forEach(sl=>{
+    const u=sl.url||URL.createObjectURL(sl.blob); if(!sl.url&&urlBag)urlBag.push(u);
+    const b=document.createElement('button'); b.type='button'; b.className='slide'; b.setAttribute('aria-label',sl.label+' 크게 보기');
+    b.innerHTML='<img alt="">'; b.querySelector('img').src=u; b.querySelector('img').alt=sl.label;
     b.onclick=()=>{$('zoomImg').src=u;$('zoom').hidden=false;$('zoom').scrollTop=0};
-    box.appendChild(b);
-  }
+    tr.appendChild(b);
+  });
+  const cur=()=>Math.round(tr.scrollLeft/Math.max(1,tr.clientWidth));
+  tr.addEventListener('scroll',()=>{const i=Math.min(slides.length-1,cur());wrap.querySelector('.ci').textContent=i+1;wrap.querySelector('.cl').textContent=slides[i].label},{passive:true});
+  const go=d=>tr.scrollTo({left:(cur()+d)*tr.clientWidth,behavior:'smooth'});
+  const pv=wrap.querySelector('.prev'), nx=wrap.querySelector('.next'); if(pv)pv.onclick=()=>go(-1); if(nx)nx.onclick=()=>go(1);
+  return wrap;
 }
 function closeDetail(){$('detail').hidden=true;$('detail').innerHTML='';detailId=null}
 $('zoomClose').onclick=()=>{$('zoom').hidden=true};
 
+function closeEdit(){const pg=$('editPage');pg.hidden=true;pg.innerHTML='';editURLs.forEach(u=>URL.revokeObjectURL(u));editURLs=[]}
+let editURLs=[];
+function openEditPage(build){
+  const pg=$('editPage'); pg.hidden=false;
+  pg.innerHTML=`<div class="bar"><button type="button" class="iconbtn" id="eClose" aria-label="편집 닫기">✕</button><h3>레시피 편집</h3><button type="button" class="btn primary sm" id="eSaveTop">저장</button></div>
+    <div class="epane" id="ePane"></div><button type="button" class="efold" id="eFold" aria-expanded="true">사진 접기 ▴</button><div class="escroll" id="eForm"></div>`;
+  $('eFold').onclick=()=>{const p=$('ePane'),o=$('eFold').getAttribute('aria-expanded')==='true';p.hidden=o;$('eFold').setAttribute('aria-expanded',!o);$('eFold').textContent=o?'사진 펼치기 ▾':'사진 접기 ▴'};
+  build($('eForm'));
+}
 function openEdit(r){
   const imgs=imgIds(r).slice();
-  openSheet(sh=>{
-    sh.innerHTML=`<div class="shead"><h4>레시피 편집</h4><button type="button" class="iconbtn" id="eClose" aria-label="닫기">✕</button></div>
+  openEditPage(sh=>{
+    sh.innerHTML=`
       <label class="f">메뉴명<input id="eName" value="${esc(r.name)}"></label>
       <label class="f">카테고리<select id="eCat">${cats.map(c=>`<option ${c===r.cat?'selected':''}>${esc(c)}</option>`).join('')}</select></label>
       <label class="f">재료 (한 줄에 하나씩)<textarea id="eIng" rows="5">${esc((r.ingredients||[]).join('\n'))}</textarea></label>
@@ -647,6 +690,8 @@ function openEdit(r){
     const added=[], removed=[];
     const drawImgs=async()=>{
       const box=sh.querySelector('#eImgs'); box.innerHTML='';
+      const slides=[]; for(let k=0;k<imgs.length;k++){const iid=imgs[k];const o=added.find(x=>x.id===iid)||await getImage(iid);if(o)slides.push({blob:o.full,label:imgs.length>1?`캡처 ${k+1}`:'캡처'})}
+      const pane=$('ePane'); if(pane){pane.innerHTML='';pane.appendChild(carousel(slides,editURLs,'pane'))}
       for(const iid of imgs){
         const it=document.createElement('div'); it.className='eimg';
         const a=added.find(x=>x.id===iid), o=a||await getImage(iid);
@@ -672,7 +717,7 @@ function openEdit(r){
     };
     sh.querySelector('#cvNone').onclick=()=>{cvOp='none';sh.querySelector('#cvSt').textContent='캡처를 그대로 대표 사진으로 써요';drawCv()};
     sh.querySelector('#cvPick').onclick=async()=>{const f=(await pickImages())[0];if(!f)return;const {i,u}=await loadImg(f);cvOp=await shrink(i,900,0.86);URL.revokeObjectURL(u);sh.querySelector('#cvSt').textContent='고른 사진을 대표 사진으로 써요 · 저장을 눌러야 반영돼요';drawCv()};
-    sh.querySelector('#eClose').onclick=closeSheet;
+    $('eClose').onclick=closeEdit; $('eSaveTop').onclick=()=>sh.querySelector('#eSave').click();
     sh.querySelector('#eReparse').onclick=()=>{const pr=parseRecipe(sh.querySelector('#eText').value);sh.querySelector('#eIng').value=pr.ingredients.join('\n');sh.querySelector('#eSteps').value=pr.steps.join('\n');toast(`재료 ${pr.ingredients.length}개 · 순서 ${pr.steps.length}단계로 다시 정리했어요`)};
     sh.querySelector('#eAddImg').onclick=async()=>{
       const files=await pickImages(); if(!files||!files.length)return;
@@ -702,14 +747,14 @@ function openEdit(r){
       if(cvOp==='none'){await tx('images','readwrite',s=>s.delete('cover_'+r.id));r.cover=false}
       else if(cvOp instanceof Blob){await putImage({id:'cover_'+r.id,rid:r.id,full:cvOp,thumb:await coverThumb(cvOp)});r.cover=true}
       if(thumbs[r.id]){URL.revokeObjectURL(thumbs[r.id]);delete thumbs[r.id]}
-      await saveRecipe(r); closeSheet(); await openDetail(r.id); render(); toast('저장했어요');
+      await saveRecipe(r); closeEdit(); await openDetail(r.id); render(); toast('저장했어요');
     };
     sh.querySelector('#eDel').onclick=async()=>{
       const imgsData=[]; for(const iid of [...imgIds(r),'cover_'+r.id]){const o=await getImage(iid);if(o)imgsData.push(o)}
       lastDeleted=[{r:Object.assign({},r),imgs:imgsData}];
       await delRecipe(r); recipes=recipes.filter(x=>x.id!==r.id);
       if(thumbs[r.id]){URL.revokeObjectURL(thumbs[r.id]);delete thumbs[r.id]}
-      closeSheet(); closeDetail(); render(); toast(`'${r.name}' 삭제했어요`,true);
+      closeEdit(); closeDetail(); render(); toast(`'${r.name}' 삭제했어요`,true);
     };
   });
 }
@@ -809,6 +854,7 @@ if(NATIVE&&Cap.Plugins&&Cap.Plugins.App){
   Cap.Plugins.App.addListener('backButton',()=>{
     if(!$('zoom').hidden){$('zoom').hidden=true;return}
     if(!$('scrim').hidden){if(pending.length)pending=[];closeSheet();return}
+    if(!$('editPage').hidden){closeEdit();return}
     if(!$('detail').hidden){closeDetail();return}
     if(selMode){exitSel();return}
     if(query){$('q').value='';query='';$('qx').hidden=true;render();return}
