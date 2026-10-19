@@ -132,6 +132,15 @@ details.ocr pre{margin:0;padding:0 12px 12px;white-space:pre-wrap;word-break:bre
 .nwrap input{padding-right:34px}
 .nwrap .clr{position:absolute;right:4px;top:50%;transform:translateY(-50%);border:0;background:transparent;color:var(--muted);font-size:15px;padding:4px 6px}
 .st.ok{color:var(--accent)}
+.nimg{font-size:11px;font-weight:700;color:var(--accent)}
+.mrow{display:flex;gap:6px;flex-wrap:wrap}
+.mbtn{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:4px 9px;font-size:12px;font-weight:600}
+.mbtn.merge{border-color:var(--accent);color:var(--accent)}
+.hero.cover img{max-height:60vh;object-fit:cover}
+.cvrow{display:flex;gap:10px;align-items:flex-start}
+.cvprev{width:96px;height:96px;flex:none;border-radius:10px;background:var(--soft) center/cover no-repeat;border:1px solid var(--line);display:grid;place-items:end center;font-size:11px;color:#fff;text-shadow:0 1px 2px #000;padding-bottom:4px}
+.cvbtns{display:flex;flex-direction:column;gap:6px;min-width:0;flex:1}
+.btn.sm{padding:6px 10px;font-size:13px}
 .blk{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px 14px}
 .blk h5{margin:0 0 6px;font-size:14px;color:var(--accent)}
 .ing{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:3px}
@@ -208,7 +217,7 @@ const saveRecipe=r=>tx('recipes','readwrite',s=>s.put(r));
 const saveCats=()=>tx('meta','readwrite',s=>s.put({k:'cats',v:cats}));
 const getImage=id=>tx('images','readonly',s=>reqP(s.get(id)));
 const putImage=o=>tx('images','readwrite',s=>s.put(o));
-async function delRecipe(r){await tx('recipes','readwrite',s=>s.delete(r.id));for(const iid of (r.imgs&&r.imgs.length?r.imgs:[r.id]))await tx('images','readwrite',s=>s.delete(iid))}
+async function delRecipe(r){await tx('recipes','readwrite',s=>s.delete(r.id));for(const iid of [...(r.imgs&&r.imgs.length?r.imgs:[r.id]),'cover_'+r.id])await tx('images','readwrite',s=>s.delete(iid))}
 try{navigator.storage&&navigator.storage.persist&&navigator.storage.persist()}catch(e){}
 
 /* ---------- images ---------- */
@@ -221,7 +230,7 @@ async function shrink(img,maxW,q){
 }
 async function thumbURL(r){
   if(thumbs[r.id])return thumbs[r.id];
-  const o=await getImage(r.imgs&&r.imgs.length?r.imgs[0]:r.id); if(!o)return '';
+  const o=(r.cover&&await getImage('cover_'+r.id))||await getImage(r.imgs&&r.imgs.length?r.imgs[0]:r.id); if(!o)return '';
   return thumbs[r.id]=URL.createObjectURL(o.thumb||o.full);
 }
 function blobToB64(b){return new Promise((res,rej)=>{const f=new FileReader();f.onload=()=>res(String(f.result).split(',')[1]);f.onerror=rej;f.readAsDataURL(b)})}
@@ -311,7 +320,8 @@ function parseRecipe(text){
   for(const raw of lines){
     if(isNoise(raw))continue;
     const t=raw;
-    if(/^(재료|준비물|필요한\s*재료|양념|소스|드레싱)\s*[:：]?\s*$/.test(t)||/재료\s*\(/.test(t)&&t.length<16){mode='ing';lastStepOpen=false;continue}
+    if(t==='---'){mode='';lastStepOpen=false;continue}   // 합친 캡처 사이 경계
+    if(/^(재료|준비물|필요한\s*재료|양념|소스|드레싱)\s*[:：]?\s*$/.test(t)||/재료\s*\(/.test(t)&&t.length<16){mode='ingHdr';lastStepOpen=false;continue}
     if(/^(만드는\s*(법|방법)|조리\s*(법|방법|순서)|레시피\s*순서|방법)\s*[:：]?\s*$/.test(t)){mode='step';lastStepOpen=false;continue}
     if(STEP_RE.test(t)){
       const s=t.replace(STEP_RE,'').trim(); if(s){steps.push(s);lastStepOpen=!/(다|요|음|함|기)[.!~\s]*$/.test(s)}
@@ -324,7 +334,7 @@ function parseRecipe(text){
       (parts&&parts.length>1?parts:[body]).forEach(p=>addIng(p.trim())); mode='ing'; continue;
     }
     if(ING_RE.test(t)&&t.length<=40&&!/(는데|더니|어요|해요|했어요|세요|니다)[.!~\s]*$/.test(t)){addIng(t);mode='ing';continue}
-    if(mode==='ing'&&/,/.test(t)&&t.length<=40&&!/(요|다)[.!~\s]*$/.test(t)){t.split(/[,，]/).forEach(x=>addIng(x));continue}
+    if(mode==='ingHdr'&&/,/.test(t)&&t.length<=40&&!/(요|다)[.!~\s]*$/.test(t)){t.split(/[,，]/).forEach(x=>addIng(x));continue}
     if(mode==='step'&&t.length>=6&&t.length<80&&/(다|요|기|음)[.!~\s]*$/.test(t)&&steps.length){steps.push(t);continue}
   }
   return {ingredients:ing,steps};
@@ -396,10 +406,46 @@ function pickImages(){
 }
 async function prepImage(file){
   const {i,u}=await loadImg(file);
-  const full=await shrink(i,1280,0.86), thumb=await shrink(i,360,0.8); URL.revokeObjectURL(u);
+  const full=await shrink(i,1280,0.86), thumb=await shrink(i,360,0.8);
   const res=await readText(file);
-  return {full,thumb,res,text:res&&res.text||''};
+  let cover=null; try{cover=await findFoodPhoto(i,res&&res.lines)}catch(e){}
+  URL.revokeObjectURL(u);
+  return {full,thumb,res,text:res&&res.text||'',cover};
 }
+/* 캡처 속 음식 사진 찾기: 글자가 아니고 색이 다양한 가장 큰 가로 띠를 잘라내요 */
+async function findFoodPhoto(img,lines){
+  const NW=img.naturalWidth, NH=img.naturalHeight; if(!NW||!NH)return null;
+  const W=90, H=Math.max(1,Math.round(NH*W/NW)), sc=H/NH;
+  const c=document.createElement('canvas'); c.width=W; c.height=H; const g=c.getContext('2d',{willReadFrequently:true});
+  g.drawImage(img,0,0,W,H); const d=g.getImageData(0,0,W,H).data;
+  const textRow=new Uint8Array(H);
+  (lines||[]).forEach(l=>{const a=Math.max(0,Math.floor(l.top*sc)),b=Math.min(H-1,Math.ceil((l.top+l.height)*sc));for(let y=a;y<=b;y++)textRow[y]=1});
+  const photo=new Uint8Array(H);
+  for(let y=0;y<H;y++){
+    let sum=0,sum2=0,sat=0; const cols=new Set();
+    for(let x=0;x<W;x++){
+      const k=(y*W+x)*4, r=d[k],gg=d[k+1],b=d[k+2], mx=Math.max(r,gg,b), mn=Math.min(r,gg,b), l=(r+gg+b)/3;
+      sum+=l; sum2+=l*l; sat+=mx?(mx-mn)/mx:0; cols.add((r>>5)<<6|(gg>>5)<<3|(b>>5));
+    }
+    const m=sum/W, sd=Math.sqrt(Math.max(0,sum2/W-m*m)), st=sat/W, nc=cols.size;
+    const like=(st>0.08&&nc>=4)||(nc>=12&&sd>20);   // 글자 줄은 흰 바탕에 회색 몇 가지뿐이라 색이 거의 없어요
+    photo[y]=like&&!(textRow[y]&&nc<16)?1:0;
+  }
+  const top=Math.floor(H*0.04), bot=Math.ceil(H*0.94), gap=Math.max(2,Math.round(H*0.015));
+  let best=[0,0], s0=-1, miss=0;
+  for(let y=top;y<=bot;y++){
+    if(y<bot&&photo[y]){if(s0<0)s0=y;miss=0}
+    else if(s0>=0){miss++;if(miss>gap||y===bot){const e=y-miss;if(e-s0>best[1]-best[0])best=[s0,e];s0=-1;miss=0}}
+  }
+  if(best[1]-best[0]<W*0.45)return null;
+  let y0=best[0]/sc, y1=best[1]/sc;
+  if(y1-y0>NW*1.4){const mid=(y0+y1)/2;y0=mid-NW*0.65;y1=mid+NW*0.65}
+  const ow=Math.min(900,NW), oh=Math.round((y1-y0)*ow/NW);
+  const o=document.createElement('canvas'); o.width=ow; o.height=oh;
+  o.getContext('2d').drawImage(img,0,y0,NW,y1-y0,0,0,ow,oh);
+  return await toBlob(o,0.85);
+}
+async function coverThumb(blob){const {i,u}=await loadImg(blob);const t=await shrink(i,420,0.8);URL.revokeObjectURL(u);return t}
 
 /* ---------- 캡처 추가 ---------- */
 let pending=[];
@@ -414,7 +460,7 @@ async function addFiles(files){
   openPending();
   for(const p of pending){
     try{
-      const o=await prepImage(p.file); Object.assign(p,{full:o.full,thumb:o.thumb,text:o.text});
+      const o=await prepImage(p.file); Object.assign(p,{full:o.full,thumb:o.thumb,text:o.text,res:o.res,cover:o.cover,extra:[]});
       p.thumbU=URL.createObjectURL(p.thumb);
       const g=suggestName(o.res);
       p.cands=g.cands;
@@ -442,11 +488,13 @@ function drawPending(){
   pending.forEach(p=>{
     const row=document.createElement('div'); row.className='pend'; row.dataset.id=p.id;
     const cands=(p.cands||[]).filter(c=>c!==p.name).slice(0,6);
-    const found=(p.ingredients||[]).length||(p.steps||[]).length?`재료 ${(p.ingredients||[]).length}개 · 순서 ${(p.steps||[]).length}단계를 찾았어요`:'';
-    row.innerHTML=`<div class="pleft"><button type="button" class="th" aria-label="사진 크게 보기" style="${p.thumbU?`background-image:url('${p.thumbU}')`:''}"></button><button type="button" class="rmtxt">이 캡처 빼기</button></div>
+    const found=((p.ingredients||[]).length||(p.steps||[]).length?`재료 ${(p.ingredients||[]).length}개 · 순서 ${(p.steps||[]).length}단계`:'')+(p.cover||(p.extra||[]).some(x=>x.cover)?((p.ingredients||[]).length||(p.steps||[]).length?' · ':'')+'음식 사진 찾음':'');
+    const idx=pending.indexOf(p), nImg=1+(p.extra||[]).length, ready=p.status!=='읽는 중…';
+    row.innerHTML=`<div class="pleft"><button type="button" class="th" aria-label="사진 크게 보기" style="${p.thumbU?`background-image:url('${p.thumbU}')`:''}"></button>${nImg>1?`<span class="nimg">캡처 ${nImg}장</span>`:''}<button type="button" class="rmtxt">이 캡처 빼기</button></div>
       <div class="fields"><div class="nwrap"><input placeholder="메뉴명을 고르거나 적어 주세요" value="${esc(p.name)}" aria-label="메뉴명"><button type="button" class="clr" aria-label="메뉴명 지우기" ${p.name?'':'hidden'}>⌫</button></div><select aria-label="카테고리">${cats.map(c=>`<option ${c===p.cat?'selected':''}>${esc(c)}</option>`).join('')}</select>
       ${cands.length?`<div class="cands">${cands.map(c=>`<button type="button" class="cand">${esc(c)}</button>`).join('')}</div>`:''}
-      ${p.status==='읽는 중…'?'<span class="busy"><i class="spin"></i>사진 속 글자 읽는 중…</span>':p.status?`<span class="st">${esc(p.status)}</span>`:found?`<span class="st ok">${found}</span>`:''}</div>`;
+      ${p.status==='읽는 중…'?'<span class="busy"><i class="spin"></i>사진 속 글자 읽는 중…</span>':p.status?`<span class="st">${esc(p.status)}</span>`:found?`<span class="st ok">${found}</span>`:''}
+      <div class="mrow">${idx>0&&ready&&pending[idx-1].status!=='읽는 중…'?'<button type="button" class="mbtn merge">↑ 위 레시피에 합치기</button>':''}${nImg>1?'<button type="button" class="mbtn split">다시 나누기</button>':''}</div></div>`;
     const inp=row.querySelector('input'), sel=row.querySelector('select'), clr=row.querySelector('.clr');
     row.querySelector('.th').onclick=()=>{if(!p.file)return;if(p.zoomU)URL.revokeObjectURL(p.zoomU);p.zoomU=URL.createObjectURL(p.file);$('zoomImg').src=p.zoomU;$('zoom').hidden=false;$('zoom').scrollTop=0};
     inp.oninput=()=>{p.name=inp.value;p.edited=true;clr.hidden=!inp.value};
@@ -454,18 +502,44 @@ function drawPending(){
     sel.onchange=()=>{p.cat=sel.value;p.edited=true;p.catEdited=true};
     row.querySelectorAll('.cand').forEach(b=>b.onclick=()=>{p.name=b.textContent;p.edited=true;if(!p.catEdited)p.cat=guessCat(p.name,p.text);drawPending()});
     row.querySelector('.rmtxt').onclick=()=>{pending=pending.filter(x=>x.id!==p.id);if(!pending.length)closeSheet();else drawPending()};
+    const mg=row.querySelector('.merge'); if(mg)mg.onclick=()=>mergeUp(p);
+    const sp=row.querySelector('.split'); if(sp)sp.onclick=()=>splitOut(p);
     box.appendChild(row);
     if(focused===p.id){inp.focus();inp.setSelectionRange(inp.value.length,inp.value.length)}
   });
   const busy=pending.some(p=>p.status==='읽는 중…'), sv=$('pSave');
   if(sv){sv.disabled=busy;sv.textContent=busy?'읽는 중…':`저장 (${pending.filter(p=>!p.bad).length}개)`}
 }
+// 두 장 이상이 레시피 하나일 때: 아래 캡처를 위 레시피에 붙여요
+function recompute(t){
+  const all=[t,...t.extra];
+  t.text=all.map(x=>x.text).filter(Boolean).join('\n');
+  const pr=parseRecipe(all.map(x=>x.text).filter(Boolean).join('\n---\n')); t.ingredients=pr.ingredients; t.steps=pr.steps;
+  const lines=[]; let off=0; all.forEach(x=>{(x.res&&x.res.lines||[]).forEach(l=>lines.push(Object.assign({},l,{top:l.top+off})));off+=10000});
+  const g=suggestName({text:t.text,lines}); t.cands=g.cands;
+  if(!t.edited&&!t.name)t.name=g.name;
+  if(!t.catEdited)t.cat=guessCat(t.name||g.cands[0]||'',t.text);
+}
+function mergeUp(p){
+  const i=pending.indexOf(p); if(i<1)return; const t=pending[i-1];
+  t.extra.push({id:p.id,file:p.file,full:p.full,thumb:p.thumb,text:p.text,res:p.res,cover:p.cover},...p.extra);
+  pending.splice(i,1); recompute(t); drawPending(); toast(`'${t.name||'위 레시피'}'에 캡처를 합쳤어요`);
+}
+function splitOut(p){
+  const i=pending.indexOf(p), ex=p.extra; p.extra=[];
+  const items=ex.map(x=>{const n={id:x.id,file:x.file,full:x.full,thumb:x.thumb,text:x.text,res:x.res,cover:x.cover,extra:[],status:'',thumbU:URL.createObjectURL(x.thumb)};recompute(n);return n});
+  recompute(p); pending.splice(i+1,0,...items); drawPending();
+}
 async function savePending(){
   const ok=pending.filter(p=>!p.bad&&p.full);
   const now=Date.now(); let i=0;
   for(const p of ok){
-    const r={id:p.id,name:(p.name||'').trim()||'이름 없는 레시피',cat:p.cat||'기타',fav:false,memo:'',text:p.text||'',ingredients:p.ingredients||[],steps:p.steps||[],imgs:[p.id],created:now+(i++)};
-    await putImage({id:p.id,rid:p.id,full:p.full,thumb:p.thumb}); await saveRecipe(r); recipes.push(r);
+    const ex=p.extra||[], cover=p.cover||(ex.find(x=>x.cover)||{}).cover||null;
+    const r={id:p.id,name:(p.name||'').trim()||'이름 없는 레시피',cat:p.cat||'기타',fav:false,memo:'',text:p.text||'',ingredients:p.ingredients||[],steps:p.steps||[],imgs:[p.id,...ex.map(x=>x.id)],cover:!!cover,created:now+(i++)};
+    await putImage({id:p.id,rid:p.id,full:p.full,thumb:p.thumb});
+    for(const x of ex)await putImage({id:x.id,rid:p.id,full:x.full,thumb:x.thumb});
+    if(cover){await putImage({id:'cover_'+p.id,rid:p.id,full:cover,thumb:await coverThumb(cover)});if(p.thumbU){URL.revokeObjectURL(p.thumbU);p.thumbU=''}}
+    await saveRecipe(r); recipes.push(r);
     if(p.thumbU)thumbs[p.id]=p.thumbU;
   }
   pending=[]; closeSheet(); render(); toast(`레시피 ${ok.length}개를 저장했어요`);
@@ -480,6 +554,7 @@ async function openDetail(id){
   const ing=r.ingredients||[], st=r.steps||[];
   pg.innerHTML=`<div class="bar"><button type="button" class="iconbtn" id="dBack" aria-label="뒤로">←</button><h3>${esc(r.name)}</h3><button type="button" class="iconbtn" id="dEdit" aria-label="편집">✎</button></div>
     <div class="body">
+      ${r.cover?'<button type="button" class="hero cover" id="dCover" aria-label="음식 사진 크게 보기"><img alt=""></button>':''}
       <h2 class="dname">${esc(r.name)}</h2>
       <div class="row"><span class="tag">${esc(r.cat)}</span><button type="button" class="favbtn" id="dFav" aria-pressed="${!!r.fav}">${r.fav?'★ 즐겨찾기':'☆ 즐겨찾기'}</button></div>
       <section class="blk"><h5>재료</h5>${ing.length?`<ul class="ing">${ing.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`:'<p class="fine">아직 정리된 재료가 없어요. ✎ 편집에서 적거나 사진을 보고 채워 주세요.</p>'}</section>
@@ -492,6 +567,7 @@ async function openDetail(id){
   $('dEdit').onclick=()=>openEdit(r);
   $('dFav').onclick=async()=>{r.fav=!r.fav;await saveRecipe(r);const y=pg.scrollTop;await openDetail(r.id);pg.scrollTop=y;render()};
   detailURLs.forEach(u=>URL.revokeObjectURL(u)); detailURLs=[];
+  if(r.cover){const o=await getImage('cover_'+r.id);if(o){const u=URL.createObjectURL(o.full);detailURLs.push(u);const b=$('dCover');b.querySelector('img').src=u;b.querySelector('img').alt=r.name+' 음식 사진';b.onclick=()=>{$('zoomImg').src=u;$('zoom').hidden=false;$('zoom').scrollTop=0}}else $('dCover').remove()}
   const box=$('dImgs');
   for(const iid of imgIds(r)){
     const o=await getImage(iid); if(!o)continue;
@@ -515,6 +591,7 @@ function openEdit(r){
       <label class="f">만드는 법 (한 줄에 한 단계씩)<textarea id="eSteps" rows="5">${esc((r.steps||[]).join('\n'))}</textarea></label>
       <button type="button" class="btn" id="eReparse">사진 속 글자로 재료·순서 다시 정리</button>
       <label class="f">메모<textarea id="eMemo" placeholder="간을 조금 줄였더니 좋았음 등">${esc(r.memo||'')}</textarea></label>
+      <div class="f">대표 사진<div class="cvrow"><div class="cvprev" id="eCv"></div><div class="cvbtns"><button type="button" class="btn sm" id="cvAuto">캡처에서 음식 사진 찾기</button><button type="button" class="btn sm" id="cvNone">캡처 그대로 쓰기</button><button type="button" class="btn sm" id="cvPick">갤러리에서 고르기</button></div></div><span class="st" id="cvSt"></span></div>
       <div class="f">캡처<div class="eimgs" id="eImgs"></div><button type="button" class="btn" id="eAddImg">+ 캡처 더 붙이기</button><span class="st" id="eImgSt"></span></div>
       <details class="ocr"><summary>사진 속 글자 (검색에 쓰여요)</summary><textarea id="eText" class="otext">${esc(r.text||'')}</textarea></details>
       <div class="foot"><button type="button" class="btn primary" id="eSave">저장</button></div>
@@ -531,6 +608,22 @@ function openEdit(r){
       }
     };
     drawImgs();
+    let cvOp=null; // null=그대로, 'none'=없앰, Blob=새 사진
+    const drawCv=async()=>{
+      const el=sh.querySelector('#eCv'); el.style.backgroundImage='';
+      let o=null;
+      if(cvOp instanceof Blob)o={full:cvOp}; else if(cvOp!=='none'&&r.cover)o=await getImage('cover_'+r.id);
+      if(o){el.style.backgroundImage=`url("${URL.createObjectURL(o.full)}")`;el.textContent=''}
+      else{const first=added.find(x=>x.id===imgs[0])||await getImage(imgs[0]);if(first)el.style.backgroundImage=`url("${URL.createObjectURL(first.thumb||first.full)}")`;el.textContent='캡처'}
+    };
+    drawCv();
+    sh.querySelector('#cvAuto').onclick=async()=>{
+      const st=sh.querySelector('#cvSt'); st.textContent='찾는 중…';
+      for(const iid of imgs){const o=added.find(x=>x.id===iid)||await getImage(iid);if(!o)continue;const {i,u}=await loadImg(o.full);const res=await readText(o.full);const c=await findFoodPhoto(i,res&&res.lines);URL.revokeObjectURL(u);if(c){cvOp=c;st.textContent='음식 사진을 찾았어요 · 저장을 눌러야 반영돼요';drawCv();return}}
+      st.textContent='캡처에서 음식 사진을 못 찾았어요. 갤러리에서 골라 주세요.';
+    };
+    sh.querySelector('#cvNone').onclick=()=>{cvOp='none';sh.querySelector('#cvSt').textContent='캡처를 그대로 대표 사진으로 써요';drawCv()};
+    sh.querySelector('#cvPick').onclick=async()=>{const f=(await pickImages())[0];if(!f)return;const {i,u}=await loadImg(f);cvOp=await shrink(i,900,0.86);URL.revokeObjectURL(u);sh.querySelector('#cvSt').textContent='고른 사진을 대표 사진으로 써요 · 저장을 눌러야 반영돼요';drawCv()};
     sh.querySelector('#eClose').onclick=closeSheet;
     sh.querySelector('#eReparse').onclick=()=>{const pr=parseRecipe(sh.querySelector('#eText').value);sh.querySelector('#eIng').value=pr.ingredients.join('\n');sh.querySelector('#eSteps').value=pr.steps.join('\n');toast(`재료 ${pr.ingredients.length}개 · 순서 ${pr.steps.length}단계로 다시 정리했어요`)};
     sh.querySelector('#eAddImg').onclick=async()=>{
@@ -558,11 +651,13 @@ function openEdit(r){
       for(const a of added)if(imgs.includes(a.id))await putImage({id:a.id,rid:r.id,full:a.full,thumb:a.thumb});
       for(const iid of removed)if(!imgs.includes(iid))await tx('images','readwrite',s=>s.delete(iid));
       r.imgs=imgs.slice();
+      if(cvOp==='none'){await tx('images','readwrite',s=>s.delete('cover_'+r.id));r.cover=false}
+      else if(cvOp instanceof Blob){await putImage({id:'cover_'+r.id,rid:r.id,full:cvOp,thumb:await coverThumb(cvOp)});r.cover=true}
       if(thumbs[r.id]){URL.revokeObjectURL(thumbs[r.id]);delete thumbs[r.id]}
       await saveRecipe(r); closeSheet(); await openDetail(r.id); render(); toast('저장했어요');
     };
     sh.querySelector('#eDel').onclick=async()=>{
-      const imgsData=[]; for(const iid of imgIds(r)){const o=await getImage(iid);if(o)imgsData.push(o)}
+      const imgsData=[]; for(const iid of [...imgIds(r),'cover_'+r.id]){const o=await getImage(iid);if(o)imgsData.push(o)}
       lastDeleted={r:Object.assign({},r),imgs:imgsData};
       await delRecipe(r); recipes=recipes.filter(x=>x.id!==r.id);
       if(thumbs[r.id]){URL.revokeObjectURL(thumbs[r.id]);delete thumbs[r.id]}
@@ -611,7 +706,7 @@ async function exportBackup(){
   toast('백업 파일 만드는 중…');
   const z=new JSZip();
   z.file('recipes.json',JSON.stringify({v:2,cats,recipes},null,1));
-  for(const r of recipes)for(const iid of imgIds(r)){const o=await getImage(iid);if(o){z.file(`images/${iid}.jpg`,o.full);if(o.thumb)z.file(`thumbs/${iid}.jpg`,o.thumb)}}
+  for(const r of recipes)for(const iid of [...imgIds(r),...(r.cover?['cover_'+r.id]:[])]){const o=await getImage(iid);if(o){z.file(`images/${iid}.jpg`,o.full);if(o.thumb)z.file(`thumbs/${iid}.jpg`,o.thumb)}}
   const d=new Date(), name=`레시피노트_백업_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}.zip`;
   try{
     if(NATIVE){
@@ -631,7 +726,7 @@ async function importBackup(file){
     for(const r of j.recipes||[]){
       if(recipes.some(x=>x.id===r.id))continue;
       let got=0;
-      for(const iid of imgIds(r)){
+      for(const iid of [...imgIds(r),...(r.cover?['cover_'+r.id]:[])]){
         const full=z.file(`images/${iid}.jpg`), th=z.file(`thumbs/${iid}.jpg`); if(!full)continue;
         const fb=new Blob([await full.async('arraybuffer')],{type:'image/jpeg'}), tb=th?new Blob([await th.async('arraybuffer')],{type:'image/jpeg'}):fb;
         await putImage({id:iid,rid:r.id,full:fb,thumb:tb}); got++;
