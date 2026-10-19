@@ -92,6 +92,9 @@ details.ocr pre{margin:0;padding:0 12px 12px;white-space:pre-wrap;word-break:bre
 .pend input,.pend select{font-size:14px;border:1px solid var(--line);border-radius:8px;padding:7px 8px;background:var(--surface);width:100%}
 .pend .rm{border:0;background:transparent;color:var(--muted);font-size:18px;padding:4px 6px}
 .pend .st{font-size:12px;color:var(--muted)}
+.cands{display:flex;flex-wrap:wrap;gap:4px}
+.cands::before{content:"사진 속 글자:";font-size:11px;color:var(--muted);width:100%}
+.cand{border:1px dashed var(--line);background:transparent;border-radius:999px;padding:2px 9px;font-size:12px;color:var(--ink)}
 .catlist{display:flex;flex-direction:column;gap:6px}
 .catrow{display:flex;gap:6px;align-items:center}
 .catrow input{flex:1;border:1px solid var(--line);border-radius:8px;padding:7px 9px;background:var(--surface)}
@@ -190,16 +193,37 @@ async function readText(blob){
   const P=NATIVE&&Cap.Plugins&&Cap.Plugins.TextReader; if(!P)return null;
   try{return await P.read({base64:await blobToB64(blob)})}catch(e){return null}
 }
-function guessName(res,fallback){
-  if(!res||!res.lines||!res.lines.length)return fallback;
-  const ok=t=>{t=t.trim();if(t.length<2||t.length>28)return false;if(!/[가-힣]/.test(t))return false;if(/^\d/.test(t))return false;return !STOP.some(w=>t.includes(w))};
-  const cand=res.lines.filter(l=>ok(l.text));
-  if(!cand.length)return fallback;
-  // 글자가 크고 위쪽에 있는 줄을 메뉴명으로 봐요
-  const maxY=Math.max(...res.lines.map(l=>l.top+l.height),1);
-  cand.sort((a,b)=>(b.height*(1.4-b.top/maxY))-(a.height*(1.4-a.top/maxY)));
-  return cand[0].text.trim().replace(/\s+/g,' ');
+// 사진 속 줄 중에서 메뉴명 후보를 골라 점수 순으로 돌려줘요
+const UI_NOISE=['다시 보기','팔로우','팔로잉','댓글','좋아요','공유','더보기','번역 보기','답글','메시지','광고','스폰서','원본 오디오','오디오','구독','알림','저장됨','프로필','인기','추천'];
+const FILLER=/(레시피|만드는\s*법|만들기|황금|초간단|간단|꿀팁|존맛|진짜|맛있는|최애|추천|저장\s*필수|필수)/g;
+const QTY=/\d+(\.\d+)?\s*(컵|스푼|큰술|작은술|숟가락|티스푼|g|kg|ml|L|개|T|t|cc|장|알|쪽|줌|꼬집|분|인분)(?![가-힣])/;
+function cleanTitle(t){
+  return t.replace(/[^\p{Script=Hangul}A-Za-z0-9\s&()·.,\-~]/gu,' ').replace(/\d+\s*만\s*원(\s*주고\s*배운)?/g,' ').replace(FILLER,' ')
+    .replace(/[()]/g,' ').replace(/\s+/g,' ').replace(/^[\s.,\-~·]+|[\s.,\-~·]+$/g,'').trim();
 }
+const DISH_WORDS=Object.values(CAT_WORDS).flat().map(w=>w.trim()).filter(w=>w.length>=2);
+function nameCandidates(res){
+  if(!res||!res.lines||!res.lines.length)return [];
+  const maxY=Math.max(...res.lines.map(l=>l.top+l.height),1), seen=new Set(), out=[];
+  res.lines.forEach(l=>{
+    const raw=(l.text||'').trim();
+    if(!raw||/\d{1,2}:\d{2}/.test(raw)||/\d+\s*월\s*\d+\s*일/.test(raw))return;
+    if(UI_NOISE.some(w=>raw.includes(w)))return;
+    if(QTY.test(raw)||/재료|:/.test(raw))return;
+    const t=cleanTitle(raw);
+    if(t.length<2||t.length>22||!/[가-힣]/.test(t))return;
+    if(/(요|다|죠|니다|세요|네요|해요)[.!~\s]*$/.test(t)||/[!?]{2,}/.test(raw))return;
+    if((t.match(/\s/g)||[]).length>4)return;
+    if(seen.has(t))return; seen.add(t);
+    const pos=l.top/maxY;
+    let sc=(l.height||1)*(1.5-pos);
+    if(DISH_WORDS.some(w=>t.includes(w)))sc*=1.8;
+    if(pos>0.8)sc*=0.6;
+    out.push({text:t,score:sc});
+  });
+  return out.sort((a,b)=>b.score-a.score);
+}
+function guessName(res,fallback){const c=nameCandidates(res);return c.length?c[0].text:fallback}
 function guessCat(name,text){
   const hay=(name+' ').repeat(3)+' '+(text||'');
   let best='', score=0;
@@ -259,7 +283,8 @@ $('pick').addEventListener('change',async e=>{
       p.thumbU=URL.createObjectURL(p.thumb);
       const res=await readText(p.file);
       p.text=res&&res.text||'';
-      if(!p.edited){p.name=guessName(res,'')||'';p.cat=guessCat(p.name,p.text)}
+      p.cands=nameCandidates(res).slice(0,6).map(c=>c.text);
+      if(!p.edited){p.name=p.cands[0]||'';p.cat=guessCat(p.name,p.text)}
       p.status=res?(p.text?'':'글자를 못 찾았어요 · 메뉴명을 적어 주세요'):(NATIVE?'글자를 못 읽었어요 · 메뉴명을 적어 주세요':'');
     }catch(err){p.status='사진을 읽지 못했어요';p.bad=true}
     drawPending();
@@ -282,10 +307,13 @@ function drawPending(){
     const row=document.createElement('div'); row.className='pend'; row.dataset.id=p.id;
     row.innerHTML=`<div class="th" style="${p.thumbU?`background-image:url('${p.thumbU}')`:''}"></div>
       <div class="fields"><input placeholder="메뉴명" value="${esc(p.name)}" aria-label="메뉴명"><select aria-label="카테고리">${cats.map(c=>`<option ${c===p.cat?'selected':''}>${esc(c)}</option>`).join('')}</select>
+      ${(p.cands||[]).filter(c=>c!==p.name).length?`<div class="cands">${p.cands.filter(c=>c!==p.name).slice(0,5).map(c=>`<button type="button" class="cand">${esc(c)}</button>`).join('')}</div>`:''}
       ${p.status?`<span class="st">${p.status==='읽는 중…'?'<span class="busy"><i class="spin"></i>사진 속 글자 읽는 중…</span>':esc(p.status)}</span>`:''}</div>
       <button type="button" class="rm" aria-label="빼기">✕</button>`;
     const inp=row.querySelector('input'), sel=row.querySelector('select');
     inp.oninput=()=>{p.name=inp.value;p.edited=true}; sel.onchange=()=>{p.cat=sel.value;p.edited=true};
+    row.querySelectorAll('.cand').forEach(b=>b.onclick=()=>{p.name=b.textContent;p.edited=true;if(!p.catEdited)p.cat=guessCat(p.name,p.text);drawPending()});
+    sel.addEventListener('change',()=>{p.catEdited=true});
     row.querySelector('.rm').onclick=()=>{pending=pending.filter(x=>x.id!==p.id);if(!pending.length)closeSheet();else drawPending()};
     box.appendChild(row);
     if(focused===p.id){inp.focus();inp.setSelectionRange(inp.value.length,inp.value.length)}
