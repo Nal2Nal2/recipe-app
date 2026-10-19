@@ -123,6 +123,16 @@ details.ocr pre{margin:0;padding:0 12px 12px;white-space:pre-wrap;word-break:bre
 .rc .cnt{position:absolute;left:6px;top:6px;background:rgba(0,0,0,.5);color:#fff;border-radius:999px;font-size:11px;padding:1px 6px}
 .rc .row2{display:flex;gap:6px;align-items:center}
 .rc .mini{font-size:11px;color:var(--muted)}
+.rc{position:relative;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.rc.on{outline:3px solid var(--accent);outline-offset:-3px}
+.rc.on::after{content:'✓';position:absolute;top:8px;left:8px;width:24px;height:24px;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;font-weight:800;font-size:14px}
+body.selecting .fab{display:none}
+.selbar{position:fixed;left:0;right:0;bottom:0;z-index:6;background:var(--surface);border-top:1px solid var(--line);display:flex;align-items:center;gap:6px;padding:10px max(12px,env(safe-area-inset-right,0px)) calc(10px + env(safe-area-inset-bottom,0px)) max(12px,env(safe-area-inset-left,0px));box-shadow:0 -4px 16px rgba(0,0,0,.08)}
+.selbar .sn{flex:1;font-size:14px}
+.selbar .sb{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:8px 10px;font-weight:600;font-size:13px}
+.selbar .sb.danger{color:var(--danger);border-color:var(--danger)}
+.selbar .sx{border:0;background:transparent;font-size:18px;padding:4px 6px;color:var(--muted)}
+.opts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 .shead{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
 .pend{grid-template-columns:72px minmax(0,1fr)}
 .pleft{display:flex;flex-direction:column;gap:6px;align-items:center}
@@ -165,6 +175,7 @@ details.ocr pre{margin:0;padding:0 12px 12px;white-space:pre-wrap;word-break:bre
 </div>
 <label class="fab" for="pick">+ 캡처 추가<input type="file" id="pick" accept="image/*" multiple></label>
 <input type="file" id="pick2" accept="image/*" multiple hidden>
+<div class="selbar" id="selBar" hidden></div>
 
 <section class="page" id="detail" hidden></section>
 <div class="zoom" id="zoom" hidden><img id="zoomImg" alt=""><button type="button" class="close" id="zoomClose" aria-label="닫기">✕</button></div>
@@ -353,12 +364,49 @@ function grid(items){
     const n=(r.ingredients||[]).length;
     b.innerHTML=`<div class="ph">${r.fav?'<span class="fav">★</span>':''}${imgIds(r).length>1?`<span class="cnt">${imgIds(r).length}장</span>`:''}</div><div class="t"><span class="n">${esc(r.name)}</span><span class="row2"><span class="tag">${esc(r.cat)}</span>${n?`<span class="mini">재료 ${n}</span>`:''}</span></div>`;
     thumbURL(r).then(u=>{if(u)b.querySelector('.ph').style.backgroundImage=`url("${u}")`});
-    b.onclick=()=>openDetail(r.id);
+    b.dataset.id=r.id; if(selMode&&sel.has(r.id))b.classList.add('on');
+    let t=null, sx=0, sy=0, long=false;
+    b.addEventListener('pointerdown',e=>{long=false;sx=e.clientX;sy=e.clientY;clearTimeout(t);t=setTimeout(()=>{long=true;try{navigator.vibrate&&navigator.vibrate(12)}catch(_){};if(!selMode){selMode=true;sel.clear()}toggleSel(r.id,b)},450)});
+    b.addEventListener('pointermove',e=>{if(Math.hypot(e.clientX-sx,e.clientY-sy)>10)clearTimeout(t)});
+    ['pointerup','pointercancel','pointerleave'].forEach(ev=>b.addEventListener(ev,()=>clearTimeout(t)));
+    b.addEventListener('contextmenu',e=>e.preventDefault());
+    b.onclick=()=>{if(long){long=false;return}if(selMode){toggleSel(r.id,b);return}openDetail(r.id)};
     g.appendChild(b);
   });
   return g;
 }
+/* 여러 개 선택: 카드를 꾹 누르면 시작 */
+let selMode=false; const sel=new Set();
+function toggleSel(id,el){sel.has(id)?sel.delete(id):sel.add(id);if(el)el.classList.toggle('on',sel.has(id));if(!sel.size)exitSel();else drawSelBar()}
+function exitSel(){selMode=false;sel.clear();document.querySelectorAll('.rc.on').forEach(x=>x.classList.remove('on'));drawSelBar()}
+function drawSelBar(){
+  const bar=$('selBar'); document.body.classList.toggle('selecting',selMode);
+  if(!selMode){bar.hidden=true;return}
+  bar.hidden=false;
+  bar.innerHTML=`<span class="sn"><b>${sel.size}</b>개 선택</span><button type="button" class="sb" id="sAll">모두</button><button type="button" class="sb" id="sCat">카테고리 변경</button><button type="button" class="sb danger" id="sDel">삭제</button><button type="button" class="sx" id="sX" aria-label="선택 취소">✕</button>`;
+  $('sX').onclick=exitSel;
+  $('sAll').onclick=()=>{document.querySelectorAll('.rc[data-id]').forEach(x=>{sel.add(x.dataset.id);x.classList.add('on')});drawSelBar()};
+  $('sCat').onclick=()=>openSheet(sh=>{
+    sh.innerHTML=`<div class="shead"><div><h4>카테고리 변경</h4><div class="sub">레시피 ${sel.size}개를 옮길 카테고리를 고르세요.</div></div><button type="button" class="iconbtn" id="mcX" aria-label="닫기">✕</button></div><div class="opts" id="mcList"></div>`;
+    sh.querySelector('#mcX').onclick=closeSheet;
+    cats.forEach(c=>{const b=document.createElement('button');b.type='button';b.className='btn';b.textContent=c;b.onclick=async()=>{
+      for(const id of sel){const r=recipes.find(x=>x.id===id);if(r&&r.cat!==c){r.cat=c;await saveRecipe(r)}}
+      const n=sel.size; closeSheet(); exitSel(); render(); toast(`레시피 ${n}개를 '${c}'로 옮겼어요`);
+    };sh.querySelector('#mcList').appendChild(b)});
+  });
+  $('sDel').onclick=()=>openSheet(sh=>{
+    sh.innerHTML=`<div><h4>레시피 ${sel.size}개 삭제</h4><div class="sub">사진과 함께 지워져요. 바로 아래 알림에서 되돌릴 수 있어요.</div></div><div class="foot"><button type="button" class="btn" id="mdNo">취소</button><button type="button" class="btn danger" id="mdYes">삭제</button></div>`;
+    sh.querySelector('#mdNo').onclick=closeSheet;
+    sh.querySelector('#mdYes').onclick=async()=>{
+      const gone=[];
+      for(const id of sel){const r=recipes.find(x=>x.id===id);if(!r)continue;const imgs=[];for(const iid of [...imgIds(r),'cover_'+r.id]){const o=await getImage(iid);if(o)imgs.push(o)}gone.push({r:Object.assign({},r),imgs});await delRecipe(r);if(thumbs[r.id]){URL.revokeObjectURL(thumbs[r.id]);delete thumbs[r.id]}}
+      recipes=recipes.filter(r=>!sel.has(r.id)); lastDeleted=gone;
+      closeSheet(); exitSel(); render(); toast(`레시피 ${gone.length}개를 삭제했어요`,true);
+    };
+  });
+}
 function render(){
+  if(selMode&&!recipes.some(r=>sel.has(r.id)))exitSel();
   $('count').textContent=recipes.length?`${recipes.length}개`:'';
   if(curCat&&curCat!=='전체'&&curCat!=='★'&&!cats.includes(curCat))curCat=null;
   const L=$('list'), C=$('crumb'); L.innerHTML=''; C.innerHTML='';
@@ -385,14 +433,14 @@ function render(){
       b.innerHTML=`<div class="covers">${rs.slice(0,3).map(()=>'<i></i>').join('')}</div><div class="tl"><b>${c==='★'?'★ 즐겨찾기':c==='전체'?'전체 보기':esc(c)}</b><span>${rs.length}개</span></div>`;
       const is=b.querySelectorAll('.covers i');
       rs.slice(0,3).forEach((r,i)=>thumbURL(r).then(u=>{if(u&&is[i])is[i].style.backgroundImage=`url("${u}")`}));
-      b.onclick=()=>{curCat=c;window.scrollTo(0,0);render()};
+      b.onclick=()=>{curCat=c;exitSel();window.scrollTo(0,0);render()};
       tiles.appendChild(b);
     });
     L.appendChild(tiles); return;
   }
   const items=recipes.filter(r=>inCat(r,curCat)).sort(byNew);
   C.innerHTML=`<div class="crumb"><button type="button" class="iconbtn" id="cBack" aria-label="카테고리로">←</button><b>${curCat==='★'?'★ 즐겨찾기':curCat==='전체'?'전체':esc(curCat)}</b><span>${items.length}개</span></div>`;
-  $('cBack').onclick=()=>{curCat=null;render()};
+  $('cBack').onclick=()=>{curCat=null;exitSel();render()};
   if(!items.length){L.innerHTML=`<div class="empty"><p>이 카테고리에는 아직 레시피가 없어요.</p></div>`;return}
   L.appendChild(grid(items));
 }
@@ -658,7 +706,7 @@ function openEdit(r){
     };
     sh.querySelector('#eDel').onclick=async()=>{
       const imgsData=[]; for(const iid of [...imgIds(r),'cover_'+r.id]){const o=await getImage(iid);if(o)imgsData.push(o)}
-      lastDeleted={r:Object.assign({},r),imgs:imgsData};
+      lastDeleted=[{r:Object.assign({},r),imgs:imgsData}];
       await delRecipe(r); recipes=recipes.filter(x=>x.id!==r.id);
       if(thumbs[r.id]){URL.revokeObjectURL(thumbs[r.id]);delete thumbs[r.id]}
       closeSheet(); closeDetail(); render(); toast(`'${r.name}' 삭제했어요`,true);
@@ -748,8 +796,9 @@ function toast(msg,undo){
   clearTimeout(toastTimer); toastTimer=setTimeout(()=>{$('toast').hidden=true},4000);
 }
 $('toastUndo').onclick=async()=>{
-  if(!lastDeleted)return; const {r,imgs}=lastDeleted; lastDeleted=null;
-  for(const o of imgs||[])await putImage(o); await saveRecipe(r); recipes.push(r); $('toast').hidden=true; render();
+  if(!lastDeleted)return; const list=lastDeleted; lastDeleted=null;
+  for(const {r,imgs} of list){for(const o of imgs||[])await putImage(o); await saveRecipe(r); recipes.push(r)}
+  $('toast').hidden=true; render(); toast(`레시피 ${list.length}개를 되살렸어요`);
 };
 let qt=null;
 $('q').addEventListener('input',e=>{clearTimeout(qt);qt=setTimeout(()=>{query=e.target.value;$('qx').hidden=!query;render()},150)});
@@ -761,6 +810,7 @@ if(NATIVE&&Cap.Plugins&&Cap.Plugins.App){
     if(!$('zoom').hidden){$('zoom').hidden=true;return}
     if(!$('scrim').hidden){if(pending.length)pending=[];closeSheet();return}
     if(!$('detail').hidden){closeDetail();return}
+    if(selMode){exitSel();return}
     if(query){$('q').value='';query='';$('qx').hidden=true;render();return}
     if(curCat){curCat=null;render();return}
     Cap.Plugins.App.exitApp();
