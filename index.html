@@ -635,7 +635,7 @@ async function openDetail(id){
   $('dFav').onclick=async()=>{r.fav=!r.fav;await saveRecipe(r);const y=pg.scrollTop;await openDetail(r.id);pg.scrollTop=y;render()};
   detailURLs.forEach(u=>URL.revokeObjectURL(u)); detailURLs=[];
   const slides=[];
-  if(r.cover){const o=await getImage('cover_'+r.id);if(o)slides.push({blob:o.full,label:'음식 사진'})}
+  // 대표 사진은 목록 카드에만 쓰고, 레시피 화면에서는 내가 넣은 캡처만 보여줘요
   const ids=imgIds(r);
   for(let k=0;k<ids.length;k++){const o=await getImage(ids[k]);if(o)slides.push({blob:o.full,label:ids.length>1?`캡처 ${k+1}`:'캡처'})}
   if(detailId!==id)return;
