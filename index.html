@@ -1,0 +1,460 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>레시피 노트</title>
+<meta name="theme-color" content="#2f6b3a">
+<script src="jszip.min.js"></script>
+<style>
+/* Layout: kitchen notebook — search, category tabs, two-column photo cards, full-screen recipe page */
+:root{
+  --bg:#f5f5f0; --surface:#ffffff; --ink:#1d1f1a; --muted:#6b6f64; --line:#dfe0d8; --soft:#ecede6;
+  --accent:#2f6b3a; --accent-ink:#ffffff; --accent-soft:#e2eee2; --saffron:#d99a12; --danger:#c0392b;
+  --f-body:-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){:root{
+  --bg:#121411; --surface:#1b1e19; --ink:#e7e9e2; --muted:#9ca196; --line:#2d312a; --soft:#242822;
+  --accent:#7cc287; --accent-ink:#0f1a10; --accent-soft:#1f3322; --saffron:#f0b840; --danger:#ff8173; color-scheme:dark}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.5;-webkit-tap-highlight-color:transparent}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.wrap{max-width:640px;margin:0 auto;padding:16px max(16px,env(safe-area-inset-left,0px)) 96px max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:12px}
+header{display:flex;justify-content:space-between;align-items:center;gap:8px}
+h1{margin:0;font-size:22px;font-weight:800;letter-spacing:-.02em}
+h1 small{font-size:13px;color:var(--muted);font-weight:500;margin-left:6px}
+.iconbtn{border:1px solid var(--line);background:var(--surface);border-radius:10px;width:38px;height:38px;display:grid;place-items:center;font-size:17px}
+.search{display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:0 12px}
+.search input{flex:1;border:0;background:transparent;padding:11px 0;outline:none;min-width:0}
+.search .x{border:0;background:transparent;color:var(--muted);font-size:16px;padding:4px}
+.cats{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;margin:0 -16px;padding:0 16px}
+.cats::-webkit-scrollbar{display:none}
+.cat{flex:none;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:6px 13px;font-size:14px;font-weight:600;color:var(--muted);white-space:nowrap}
+.cat b{font-weight:500;margin-left:4px;font-size:12px;opacity:.8}
+.cat[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+@media (min-width:560px){.grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.rc{border:0;background:var(--surface);border-radius:14px;overflow:hidden;text-align:left;padding:0;display:flex;flex-direction:column;box-shadow:0 1px 0 var(--line);min-width:0}
+.rc .ph{aspect-ratio:4/5;background:var(--soft) center top/cover no-repeat;position:relative}
+.rc .fav{position:absolute;top:6px;right:6px;background:rgba(0,0,0,.45);color:#ffd36b;border-radius:999px;font-size:12px;padding:1px 6px}
+.rc .t{padding:8px 10px 10px;display:flex;flex-direction:column;gap:3px;min-width:0}
+.rc .n{font-weight:700;font-size:14px;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.tag{align-self:flex-start;font-size:11px;font-weight:700;border-radius:6px;padding:1px 7px;background:var(--accent-soft);color:var(--accent)}
+.empty{background:var(--surface);border:1px dashed var(--line);border-radius:16px;padding:28px 20px;text-align:center;display:flex;flex-direction:column;gap:10px;align-items:center}
+.empty h2{margin:0;font-size:18px}
+.empty p{margin:0;color:var(--muted);font-size:14px}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:10px 16px;font-weight:600;font-size:15px;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.danger{color:var(--danger)}
+.btn input{display:none}
+.fab{position:fixed;right:max(18px,env(safe-area-inset-right,0px));bottom:calc(18px + env(safe-area-inset-bottom,0px));z-index:5;border:0;background:var(--accent);color:var(--accent-ink);border-radius:999px;padding:14px 20px;font-weight:700;font-size:15px;box-shadow:0 6px 20px rgba(0,0,0,.2)}
+.fab input{display:none}
+.fine{font-size:12px;color:var(--muted);margin:0}
+
+/* full pages */
+.page{position:fixed;inset:0;background:var(--bg);z-index:8;overflow:auto;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+.page .bar{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:8px;padding:10px max(12px,env(safe-area-inset-left,0px));background:var(--bg);border-bottom:1px solid var(--line)}
+.page .bar h3{margin:0;font-size:16px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.page .body{max-width:640px;margin:0 auto;padding:14px max(16px,env(safe-area-inset-left,0px)) 40px;display:flex;flex-direction:column;gap:12px}
+.hero{border-radius:14px;overflow:hidden;background:var(--soft);border:0;padding:0;display:block;width:100%}
+.hero img{display:block;width:100%;height:auto}
+.dname{font-size:22px;font-weight:800;margin:0;letter-spacing:-.02em}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.favbtn{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:5px 12px;font-weight:600;font-size:14px}
+.favbtn[aria-pressed="true"]{border-color:var(--saffron);color:var(--saffron)}
+.memo{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;white-space:pre-wrap;word-break:break-word}
+details.ocr{background:var(--surface);border:1px solid var(--line);border-radius:12px}
+details.ocr summary{padding:10px 12px;font-weight:600;font-size:14px;cursor:pointer}
+details.ocr pre{margin:0;padding:0 12px 12px;white-space:pre-wrap;word-break:break-word;font-family:inherit;font-size:14px;color:var(--ink)}
+.zoom{position:fixed;inset:0;z-index:12;background:#000;overflow:auto;touch-action:pan-x pan-y pinch-zoom}
+.zoom img{display:block;width:100%;height:auto}
+.zoom .close{position:fixed;top:calc(10px + env(safe-area-inset-top,0px));right:12px;border:0;background:rgba(255,255,255,.2);color:#fff;border-radius:999px;width:40px;height:40px;font-size:18px}
+
+/* sheet */
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.42);display:flex;align-items:flex-end;justify-content:center;z-index:10}
+.sheet{background:var(--surface);width:100%;max-width:640px;max-height:90vh;overflow:auto;border-radius:18px 18px 0 0;padding:18px max(16px,env(safe-area-inset-left,0px)) calc(18px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:14px}
+.sheet h4{margin:0;font-size:18px}
+.sheet .sub{font-size:13px;color:var(--muted)}
+.f{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted)}
+.f input,.f select,.f textarea{font-size:15px;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:9px 10px;width:100%}
+.f textarea{min-height:80px;resize:vertical}
+.foot{display:flex;gap:8px}
+.foot .btn{flex:1}
+.pend{display:grid;grid-template-columns:64px minmax(0,1fr) auto;gap:10px;align-items:start;padding:10px 0;border-top:1px solid var(--line)}
+.pend:first-of-type{border-top:0}
+.pend .th{width:64px;height:80px;border-radius:8px;background:var(--soft) center top/cover no-repeat}
+.pend .fields{display:flex;flex-direction:column;gap:6px;min-width:0}
+.pend input,.pend select{font-size:14px;border:1px solid var(--line);border-radius:8px;padding:7px 8px;background:var(--surface);width:100%}
+.pend .rm{border:0;background:transparent;color:var(--muted);font-size:18px;padding:4px 6px}
+.pend .st{font-size:12px;color:var(--muted)}
+.catlist{display:flex;flex-direction:column;gap:6px}
+.catrow{display:flex;gap:6px;align-items:center}
+.catrow input{flex:1;border:1px solid var(--line);border-radius:8px;padding:7px 9px;background:var(--surface)}
+.catrow button{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:6px 10px;font-size:13px}
+.confirm{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:14px;background:var(--soft);padding:10px 12px;border-radius:10px}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:10px 14px;border-radius:12px;font-size:14px;z-index:20;max-width:calc(100% - 32px);display:flex;gap:12px;align-items:center}
+.toast button{border:0;background:transparent;color:var(--bg);font-weight:700;text-decoration:underline;padding:0;white-space:nowrap}
+.busy{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--muted)}
+.spin{width:16px;height:16px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:sp 0.8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>레시피 노트<small id="count"></small></h1>
+    <button type="button" class="iconbtn" id="setBtn" aria-label="설정">⚙</button>
+  </header>
+  <label class="search"><span aria-hidden="true">🔍</span><input id="q" type="search" placeholder="메뉴명이나 재료로 찾기" autocomplete="off"><button type="button" class="x" id="qx" aria-label="검색어 지우기" hidden>✕</button></label>
+  <nav class="cats" id="cats" aria-label="카테고리"></nav>
+  <div id="list"></div>
+</div>
+<label class="fab" for="pick">+ 캡처 추가<input type="file" id="pick" accept="image/*" multiple></label>
+
+<section class="page" id="detail" hidden></section>
+<div class="zoom" id="zoom" hidden><img id="zoomImg" alt=""><button type="button" class="close" id="zoomClose" aria-label="닫기">✕</button></div>
+<div class="scrim" id="scrim" hidden><div class="sheet" id="sheet" role="dialog" aria-modal="true"></div></div>
+<div class="toast" id="toast" hidden><span id="toastMsg"></span><button type="button" id="toastUndo" hidden>되돌리기</button></div>
+
+<script>
+(function(){
+const $=id=>document.getElementById(id);
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+const Cap=window.Capacitor, NATIVE=!!(Cap&&Cap.isNativePlatform&&Cap.isNativePlatform());
+const collator=new Intl.Collator('ko',{numeric:true,sensitivity:'base'});
+
+const DEFAULT_CATS=['한식','양식','중식','일식','분식','디저트·베이킹','음료','기타'];
+// 메뉴명/사진 속 글자에 이 단어가 있으면 그 카테고리로 먼저 골라둬요
+const CAT_WORDS={
+  '디저트·베이킹':['케이크','쿠키','브라우니','마들렌','스콘','타르트','머핀','푸딩','티라미수','빵','베이킹','휘낭시에','파운드','크림','마카롱','도넛','와플','팬케이크','젤리','아이스크림'],
+  '음료':['라떼','에이드','스무디','주스','차 ','티 ','커피','하이볼','칵테일','밀크티','청 '],
+  '분식':['떡볶이','김밥','라볶이','순대','어묵','튀김','쫄면','핫도그','토스트','유부초밥'],
+  '중식':['짜장','짬뽕','탕수육','마라','마파','꿔바로우','깐풍','유린기','볶음밥','딤섬','양장피','고추잡채','멘보샤','훠궈'],
+  '일식':['스시','초밥','우동','라멘','돈부리','덮밥','규동','가츠','돈카츠','오코노미','타코야키','야키소바','소바','오니기리','미소','카레','텐동','사케동'],
+  '양식':['파스타','스파게티','리조또','스테이크','피자','샐러드','그라탕','라자냐','수프','샌드위치','버거','감바스','뇨끼','오믈렛','브런치','크림','토마토'],
+  '한식':['김치','된장','고추장','찌개','국','탕','전','나물','불고기','제육','갈비','잡채','비빔','무침','조림','볶음','찜','장아찌','김치볶음밥','수육','보쌈','떡국','냉면','칼국수','죽','반찬','계란말이','미역']
+};
+const STOP=['재료','만드는','만들기','방법','분량','인분','준비','시간','좋아요','댓글','공유','저장','팔로우','더보기','광고','레시피','tip','TIP','Tip','http','www','@','#','g ','ml','큰술','작은술','스푼','컵'];
+
+let cats=DEFAULT_CATS.slice(), recipes=[], curCat='전체', query='', lastDeleted=null, toastTimer=null;
+const thumbs={}; // id -> objectURL
+
+/* ---------- storage (IndexedDB: 레시피와 사진을 이 폰 안에 저장) ---------- */
+let dbp=null;
+function db(){
+  if(dbp)return dbp;
+  dbp=new Promise((res,rej)=>{
+    const r=indexedDB.open('recipe-note',1);
+    r.onupgradeneeded=()=>{const d=r.result;d.createObjectStore('recipes',{keyPath:'id'});d.createObjectStore('images',{keyPath:'id'});d.createObjectStore('meta',{keyPath:'k'})};
+    r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error);
+  });
+  return dbp;
+}
+async function tx(store,mode,fn){const d=await db();return new Promise((res,rej)=>{const t=d.transaction(store,mode);const s=t.objectStore(store);let out;Promise.resolve(fn(s)).then(v=>out=v);t.oncomplete=()=>res(out);t.onerror=()=>rej(t.error)})}
+const reqP=r=>new Promise((res,rej)=>{r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)});
+async function loadAll(){
+  recipes=await tx('recipes','readonly',s=>reqP(s.getAll()));
+  const m=await tx('meta','readonly',s=>reqP(s.get('cats')));
+  if(m&&Array.isArray(m.v)&&m.v.length)cats=m.v;
+}
+const saveRecipe=r=>tx('recipes','readwrite',s=>s.put(r));
+const saveCats=()=>tx('meta','readwrite',s=>s.put({k:'cats',v:cats}));
+const getImage=id=>tx('images','readonly',s=>reqP(s.get(id)));
+const putImage=o=>tx('images','readwrite',s=>s.put(o));
+async function delRecipe(r){await tx('recipes','readwrite',s=>s.delete(r.id));await tx('images','readwrite',s=>s.delete(r.id))}
+try{navigator.storage&&navigator.storage.persist&&navigator.storage.persist()}catch(e){}
+
+/* ---------- images ---------- */
+function loadImg(blob){return new Promise((res,rej)=>{const u=URL.createObjectURL(blob);const i=new Image();i.onload=()=>res({i,u});i.onerror=()=>{URL.revokeObjectURL(u);rej(new Error('이미지를 읽지 못했어요'))};i.src=u})}
+function toBlob(c,q){return new Promise(r=>c.toBlob(r,'image/jpeg',q))}
+async function shrink(img,maxW,q){
+  const s=Math.min(1,maxW/img.naturalWidth), c=document.createElement('canvas');
+  c.width=Math.round(img.naturalWidth*s); c.height=Math.round(img.naturalHeight*s);
+  c.getContext('2d').drawImage(img,0,0,c.width,c.height); return toBlob(c,q);
+}
+async function thumbURL(r){
+  if(thumbs[r.id])return thumbs[r.id];
+  const o=await getImage(r.id); if(!o)return '';
+  return thumbs[r.id]=URL.createObjectURL(o.thumb||o.full);
+}
+function blobToB64(b){return new Promise((res,rej)=>{const f=new FileReader();f.onload=()=>res(String(f.result).split(',')[1]);f.onerror=rej;f.readAsDataURL(b)})}
+
+/* ---------- 글자 읽기 (폰 안에서 ML Kit으로) ---------- */
+async function readText(blob){
+  const P=NATIVE&&Cap.Plugins&&Cap.Plugins.TextReader; if(!P)return null;
+  try{return await P.read({base64:await blobToB64(blob)})}catch(e){return null}
+}
+function guessName(res,fallback){
+  if(!res||!res.lines||!res.lines.length)return fallback;
+  const ok=t=>{t=t.trim();if(t.length<2||t.length>28)return false;if(!/[가-힣]/.test(t))return false;if(/^\d/.test(t))return false;return !STOP.some(w=>t.includes(w))};
+  const cand=res.lines.filter(l=>ok(l.text));
+  if(!cand.length)return fallback;
+  // 글자가 크고 위쪽에 있는 줄을 메뉴명으로 봐요
+  const maxY=Math.max(...res.lines.map(l=>l.top+l.height),1);
+  cand.sort((a,b)=>(b.height*(1.4-b.top/maxY))-(a.height*(1.4-a.top/maxY)));
+  return cand[0].text.trim().replace(/\s+/g,' ');
+}
+function guessCat(name,text){
+  const hay=(name+' ').repeat(3)+' '+(text||'');
+  let best='', score=0;
+  Object.entries(CAT_WORDS).forEach(([c,ws])=>{if(!cats.includes(c))return;let s=0;ws.forEach(w=>{const n=hay.split(w).length-1;s+=n*(name.includes(w.trim())?3:1)});if(s>score){score=s;best=c}});
+  return best||(cats.includes('기타')?'기타':cats[cats.length-1]);
+}
+
+/* ---------- render ---------- */
+function filtered(){
+  const q=query.trim().toLowerCase();
+  return recipes.filter(r=>(curCat==='전체'||(curCat==='★'?r.fav:r.cat===curCat))&&(!q||(r.name+' '+(r.memo||'')+' '+(r.text||'')+' '+r.cat).toLowerCase().includes(q)))
+    .sort((a,b)=>b.created-a.created);
+}
+function renderCats(){
+  const box=$('cats'); box.innerHTML='';
+  const count=c=>c==='전체'?recipes.length:c==='★'?recipes.filter(r=>r.fav).length:recipes.filter(r=>r.cat===c).length;
+  ['전체','★',...cats].forEach(c=>{
+    if(c==='★'&&!count('★'))return;
+    const n=count(c); if(c!=='전체'&&c!=='★'&&!n&&curCat!==c)return;
+    const b=document.createElement('button'); b.type='button'; b.className='cat'; b.setAttribute('aria-pressed',curCat===c);
+    b.innerHTML=`${c==='★'?'★ 즐겨찾기':esc(c)}<b>${n}</b>`; b.onclick=()=>{curCat=c;render()};
+    box.appendChild(b);
+  });
+}
+function render(){
+  $('count').textContent=recipes.length?`${recipes.length}개`:'';
+  if(curCat!=='전체'&&curCat!=='★'&&!cats.includes(curCat))curCat='전체';
+  renderCats();
+  const L=$('list'); L.innerHTML='';
+  if(!recipes.length){
+    L.innerHTML=`<div class="empty"><h2>캡처해 둔 레시피를 넣어 보세요</h2><p>오른쪽 아래 '+ 캡처 추가'로 사진을 여러 장 한꺼번에 고를 수 있어요. 사진 속 글자를 읽어서 메뉴명과 카테고리를 먼저 채워 둘게요.</p></div>`;
+    return;
+  }
+  const items=filtered();
+  if(!items.length){L.innerHTML=`<div class="empty"><p>${query?`'${esc(query)}'에 맞는 레시피가 없어요.`:'이 카테고리에는 아직 레시피가 없어요.'}</p></div>`;return}
+  const g=document.createElement('div'); g.className='grid';
+  items.forEach(r=>{
+    const b=document.createElement('button'); b.type='button'; b.className='rc';
+    b.innerHTML=`<div class="ph">${r.fav?'<span class="fav">★</span>':''}</div><div class="t"><span class="n">${esc(r.name)}</span><span class="tag">${esc(r.cat)}</span></div>`;
+    thumbURL(r).then(u=>{if(u)b.querySelector('.ph').style.backgroundImage=`url("${u}")`});
+    b.onclick=()=>openDetail(r.id);
+    g.appendChild(b);
+  });
+  L.appendChild(g);
+}
+
+/* ---------- add from screenshots ---------- */
+let pending=[];
+$('pick').addEventListener('change',async e=>{
+  const files=[...e.target.files]; e.target.value=''; if(!files.length)return;
+  pending=files.map(f=>({id:uid(),file:f,name:'',cat:'',text:'',status:'읽는 중…',thumbU:''}));
+  openPending();
+  for(const p of pending){
+    try{
+      const {i,u}=await loadImg(p.file);
+      p.full=await shrink(i,1280,0.86); p.thumb=await shrink(i,360,0.8); URL.revokeObjectURL(u);
+      p.thumbU=URL.createObjectURL(p.thumb);
+      const res=await readText(p.file);
+      p.text=res&&res.text||'';
+      if(!p.edited){p.name=guessName(res,'')||'';p.cat=guessCat(p.name,p.text)}
+      p.status=res?(p.text?'':'글자를 못 찾았어요 · 메뉴명을 적어 주세요'):(NATIVE?'글자를 못 읽었어요 · 메뉴명을 적어 주세요':'');
+    }catch(err){p.status='사진을 읽지 못했어요';p.bad=true}
+    drawPending();
+  }
+});
+function openPending(){
+  openSheet(sh=>{
+    sh.innerHTML=`<div><h4>레시피 ${pending.length}개 추가</h4><div class="sub">메뉴명과 카테고리를 확인하고 저장하세요.</div></div><div id="pendList"></div>
+      <div class="foot"><button type="button" class="btn" id="pCancel">취소</button><button type="button" class="btn primary" id="pSave">저장</button></div>`;
+    sh.querySelector('#pCancel').onclick=()=>{pending=[];closeSheet()};
+    sh.querySelector('#pSave').onclick=savePending;
+    drawPending();
+  },{keep:true});
+}
+function drawPending(){
+  const box=$('pendList'); if(!box)return;
+  const focused=document.activeElement&&box.contains(document.activeElement)?document.activeElement.closest('.pend').dataset.id:null;
+  box.innerHTML='';
+  pending.forEach(p=>{
+    const row=document.createElement('div'); row.className='pend'; row.dataset.id=p.id;
+    row.innerHTML=`<div class="th" style="${p.thumbU?`background-image:url('${p.thumbU}')`:''}"></div>
+      <div class="fields"><input placeholder="메뉴명" value="${esc(p.name)}" aria-label="메뉴명"><select aria-label="카테고리">${cats.map(c=>`<option ${c===p.cat?'selected':''}>${esc(c)}</option>`).join('')}</select>
+      ${p.status?`<span class="st">${p.status==='읽는 중…'?'<span class="busy"><i class="spin"></i>사진 속 글자 읽는 중…</span>':esc(p.status)}</span>`:''}</div>
+      <button type="button" class="rm" aria-label="빼기">✕</button>`;
+    const inp=row.querySelector('input'), sel=row.querySelector('select');
+    inp.oninput=()=>{p.name=inp.value;p.edited=true}; sel.onchange=()=>{p.cat=sel.value;p.edited=true};
+    row.querySelector('.rm').onclick=()=>{pending=pending.filter(x=>x.id!==p.id);if(!pending.length)closeSheet();else drawPending()};
+    box.appendChild(row);
+    if(focused===p.id){inp.focus();inp.setSelectionRange(inp.value.length,inp.value.length)}
+  });
+  const busy=pending.some(p=>p.status==='읽는 중…'), sv=$('pSave');
+  if(sv){sv.disabled=busy;sv.textContent=busy?'읽는 중…':`저장 (${pending.filter(p=>!p.bad).length}개)`}
+}
+async function savePending(){
+  const box=$('pendList');
+  box.querySelectorAll('.pend').forEach(row=>{const p=pending.find(x=>x.id===row.dataset.id);if(p){p.name=row.querySelector('input').value.trim();p.cat=row.querySelector('select').value}});
+  const ok=pending.filter(p=>!p.bad&&p.full);
+  const now=Date.now(); let i=0;
+  for(const p of ok){
+    const r={id:p.id,name:p.name||'이름 없는 레시피',cat:p.cat||'기타',fav:false,memo:'',text:p.text||'',created:now+(i++)};
+    await putImage({id:p.id,full:p.full,thumb:p.thumb}); await saveRecipe(r); recipes.push(r);
+    if(p.thumbU)thumbs[p.id]=p.thumbU;
+  }
+  pending=[]; closeSheet(); render(); toast(`레시피 ${ok.length}개를 저장했어요`);
+}
+
+/* ---------- detail ---------- */
+let detailId=null, fullURL=null;
+async function openDetail(id){
+  const r=recipes.find(x=>x.id===id); if(!r)return;
+  detailId=id;
+  const pg=$('detail'); pg.hidden=false; pg.scrollTop=0;
+  pg.innerHTML=`<div class="bar"><button type="button" class="iconbtn" id="dBack" aria-label="뒤로">←</button><h3>${esc(r.name)}</h3><button type="button" class="iconbtn" id="dEdit" aria-label="편집">✎</button></div>
+    <div class="body">
+      <button type="button" class="hero" id="dHero" aria-label="사진 크게 보기"><img id="dImg" alt="${esc(r.name)} 레시피 캡처"></button>
+      <h2 class="dname">${esc(r.name)}</h2>
+      <div class="row"><span class="tag">${esc(r.cat)}</span><button type="button" class="favbtn" id="dFav" aria-pressed="${!!r.fav}">${r.fav?'★ 즐겨찾기':'☆ 즐겨찾기'}</button></div>
+      ${r.memo?`<div class="memo">${esc(r.memo)}</div>`:''}
+      ${r.text?`<details class="ocr"><summary>사진 속 글자 보기</summary><pre>${esc(r.text)}</pre></details>`:''}
+      <p class="fine">사진을 누르면 크게 보고 확대할 수 있어요.</p>
+    </div>`;
+  $('dBack').onclick=closeDetail;
+  $('dEdit').onclick=()=>openEdit(r);
+  $('dFav').onclick=async()=>{r.fav=!r.fav;await saveRecipe(r);openDetail(r.id);render()};
+  const o=await getImage(r.id);
+  if(fullURL)URL.revokeObjectURL(fullURL);
+  fullURL=o?URL.createObjectURL(o.full):'';
+  if(fullURL){$('dImg').src=fullURL;$('dHero').onclick=()=>{$('zoomImg').src=fullURL;$('zoom').hidden=false;$('zoom').scrollTop=0}}
+}
+function closeDetail(){$('detail').hidden=true;$('detail').innerHTML='';detailId=null}
+$('zoomClose').onclick=()=>{$('zoom').hidden=true};
+
+function openEdit(r){
+  openSheet(sh=>{
+    sh.innerHTML=`<div><h4>레시피 편집</h4></div>
+      <label class="f">메뉴명<input id="eName" value="${esc(r.name)}"></label>
+      <label class="f">카테고리<select id="eCat">${cats.map(c=>`<option ${c===r.cat?'selected':''}>${esc(c)}</option>`).join('')}</select></label>
+      <label class="f">메모<textarea id="eMemo" placeholder="간을 조금 줄였더니 좋았음 등">${esc(r.memo||'')}</textarea></label>
+      <label class="f">사진 속 글자 (검색에 쓰여요)<textarea id="eText">${esc(r.text||'')}</textarea></label>
+      <div class="foot"><button type="button" class="btn" id="eCancel">취소</button><button type="button" class="btn primary" id="eSave">저장</button></div>
+      <button type="button" class="btn danger" id="eDel">레시피 삭제</button>`;
+    sh.querySelector('#eCancel').onclick=closeSheet;
+    sh.querySelector('#eSave').onclick=async()=>{
+      r.name=sh.querySelector('#eName').value.trim()||r.name; r.cat=sh.querySelector('#eCat').value;
+      r.memo=sh.querySelector('#eMemo').value.trim(); r.text=sh.querySelector('#eText').value;
+      await saveRecipe(r); closeSheet(); openDetail(r.id); render(); toast('저장했어요');
+    };
+    sh.querySelector('#eDel').onclick=async()=>{
+      const img=await getImage(r.id);
+      lastDeleted={r:Object.assign({},r),img};
+      await delRecipe(r); recipes=recipes.filter(x=>x.id!==r.id);
+      if(thumbs[r.id]){URL.revokeObjectURL(thumbs[r.id]);delete thumbs[r.id]}
+      closeSheet(); closeDetail(); render(); toast(`'${r.name}' 삭제했어요`,true);
+    };
+  });
+}
+
+/* ---------- settings ---------- */
+$('setBtn').onclick=()=>openSettings();
+function openSettings(){
+  openSheet(sh=>{
+    sh.innerHTML=`<div><h4>설정</h4></div>
+      <div class="f">카테고리<div class="catlist" id="catList"></div><div class="catrow"><input id="newCat" placeholder="새 카테고리 이름"><button type="button" id="addCat">추가</button></div></div>
+      <div class="f">백업<span class="fine">레시피와 사진은 이 폰 안에만 저장돼요. 폰을 바꾸거나 앱을 지우기 전에 백업 파일을 만들어 두세요.</span>
+        <div class="row"><button type="button" class="btn" id="bExport">백업 파일 만들기</button><label class="btn" for="bImport">백업 불러오기<input type="file" id="bImport" accept=".zip,application/zip"></label></div></div>
+      <div class="foot"><button type="button" class="btn" id="sClose">닫기</button></div>`;
+    const draw=()=>{
+      const cl=sh.querySelector('#catList'); cl.innerHTML='';
+      cats.forEach((c,i)=>{
+        const n=recipes.filter(r=>r.cat===c).length;
+        const row=document.createElement('div'); row.className='catrow';
+        row.innerHTML=`<input value="${esc(c)}" aria-label="카테고리 이름"><button type="button" class="up" aria-label="위로">↑</button><button type="button" class="del">${n?`삭제(${n})`:'삭제'}</button>`;
+        const inp=row.querySelector('input');
+        inp.onchange=async()=>{const v=inp.value.trim();if(!v||cats.includes(v)){inp.value=c;return}cats[i]=v;for(const r of recipes)if(r.cat===c){r.cat=v;await saveRecipe(r)}await saveCats();if(curCat===c)curCat=v;draw();render()};
+        row.querySelector('.up').onclick=async()=>{if(!i)return;[cats[i-1],cats[i]]=[cats[i],cats[i-1]];await saveCats();draw();render()};
+        row.querySelector('.del').onclick=async()=>{
+          if(cats.length<=1)return;
+          const to=cats.includes('기타')&&c!=='기타'?'기타':cats.find(x=>x!==c);
+          cats.splice(i,1); for(const r of recipes)if(r.cat===c){r.cat=to;await saveRecipe(r)}
+          await saveCats(); draw(); render(); if(n)toast(`${c}의 레시피 ${n}개는 '${to}'로 옮겼어요`);
+        };
+        cl.appendChild(row);
+      });
+    };
+    draw();
+    sh.querySelector('#addCat').onclick=async()=>{const v=sh.querySelector('#newCat').value.trim();if(!v||cats.includes(v))return;cats.push(v);await saveCats();sh.querySelector('#newCat').value='';draw();render()};
+    sh.querySelector('#sClose').onclick=closeSheet;
+    sh.querySelector('#bExport').onclick=exportBackup;
+    sh.querySelector('#bImport').onchange=e=>{const f=e.target.files[0];e.target.value='';if(f)importBackup(f)};
+  });
+}
+async function exportBackup(){
+  if(!window.JSZip){toast('백업 도구를 못 불러왔어요');return}
+  if(!recipes.length){toast('백업할 레시피가 없어요');return}
+  toast('백업 파일 만드는 중…');
+  const z=new JSZip();
+  z.file('recipes.json',JSON.stringify({v:1,cats,recipes},null,1));
+  for(const r of recipes){const o=await getImage(r.id);if(o){z.file(`images/${r.id}.jpg`,o.full);if(o.thumb)z.file(`thumbs/${r.id}.jpg`,o.thumb)}}
+  const d=new Date(), name=`레시피노트_백업_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}.zip`;
+  try{
+    if(NATIVE){
+      const b64=await z.generateAsync({type:'base64'});
+      const w=await Cap.Plugins.Filesystem.writeFile({path:name,data:b64,directory:'CACHE'});
+      try{await Cap.Plugins.Share.share({title:name,files:[w.uri]})}catch(err){if(!/cancel/i.test(String(err&&err.message||err)))throw err}
+    }else{
+      const blob=await z.generateAsync({type:'blob'}); const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},2000);
+    }
+    toast('백업 파일을 만들었어요');
+  }catch(e){toast('백업 파일을 만들지 못했어요')}
+}
+async function importBackup(file){
+  try{
+    const z=await JSZip.loadAsync(file); const j=JSON.parse(await z.file('recipes.json').async('string'));
+    let added=0;
+    for(const r of j.recipes||[]){
+      if(recipes.some(x=>x.id===r.id))continue;
+      const full=z.file(`images/${r.id}.jpg`), th=z.file(`thumbs/${r.id}.jpg`);
+      if(!full)continue;
+      const fb=new Blob([await full.async('arraybuffer')],{type:'image/jpeg'}), tb=th?new Blob([await th.async('arraybuffer')],{type:'image/jpeg'}):fb;
+      await putImage({id:r.id,full:fb,thumb:tb}); await saveRecipe(r); recipes.push(r); added++;
+    }
+    (j.cats||[]).forEach(c=>{if(!cats.includes(c))cats.push(c)}); await saveCats();
+    closeSheet(); render(); toast(`레시피 ${added}개를 불러왔어요${(j.recipes||[]).length>added?' · 이미 있는 건 건너뛰었어요':''}`);
+  }catch(e){toast('백업 파일을 읽지 못했어요. 이 앱에서 만든 .zip 파일인지 확인해 주세요')}
+}
+
+/* ---------- sheet / toast / search ---------- */
+function openSheet(build){const sh=$('sheet');sh.innerHTML='';build(sh);$('scrim').hidden=false}
+function closeSheet(){$('scrim').hidden=true;$('sheet').innerHTML=''}
+$('scrim').addEventListener('click',e=>{if(e.target.id==='scrim'&&!pending.length)closeSheet()});
+function toast(msg,undo){
+  $('toastMsg').textContent=msg; $('toastUndo').hidden=!undo; $('toast').hidden=false;
+  clearTimeout(toastTimer); toastTimer=setTimeout(()=>{$('toast').hidden=true},4000);
+}
+$('toastUndo').onclick=async()=>{
+  if(!lastDeleted)return; const {r,img}=lastDeleted; lastDeleted=null;
+  if(img)await putImage(img); await saveRecipe(r); recipes.push(r); $('toast').hidden=true; render();
+};
+let qt=null;
+$('q').addEventListener('input',e=>{clearTimeout(qt);qt=setTimeout(()=>{query=e.target.value;$('qx').hidden=!query;render()},150)});
+$('qx').onclick=()=>{$('q').value='';query='';$('qx').hidden=true;render()};
+
+/* 안드로이드 뒤로가기: 확대 → 창 → 상세 → 검색/카테고리 → 앱 닫기 */
+if(NATIVE&&Cap.Plugins&&Cap.Plugins.App){
+  Cap.Plugins.App.addListener('backButton',()=>{
+    if(!$('zoom').hidden){$('zoom').hidden=true;return}
+    if(!$('scrim').hidden){if(pending.length)pending=[];closeSheet();return}
+    if(!$('detail').hidden){closeDetail();return}
+    if(query||curCat!=='전체'){$('q').value='';query='';$('qx').hidden=true;curCat='전체';render();return}
+    Cap.Plugins.App.exitApp();
+  });
+}
+
+loadAll().then(render).catch(()=>{render();toast('저장 공간을 열지 못했어요')});
+})();
+</script>
+</body>
+</html>

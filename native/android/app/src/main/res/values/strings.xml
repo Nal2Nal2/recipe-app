@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">레시피 노트</string>
+    <string name="title_activity_main">레시피 노트</string>
+    <string name="package_name">com.nal2nal2.recipe</string>
+    <string name="custom_url_scheme">com.nal2nal2.recipe</string>
+</resources>
