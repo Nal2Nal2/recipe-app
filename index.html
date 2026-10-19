@@ -87,7 +87,8 @@ details.ocr pre{margin:0;padding:0 12px 12px;white-space:pre-wrap;word-break:bre
 .foot .btn{flex:1}
 .pend{display:grid;grid-template-columns:64px minmax(0,1fr) auto;gap:10px;align-items:start;padding:10px 0;border-top:1px solid var(--line)}
 .pend:first-of-type{border-top:0}
-.pend .th{width:64px;height:80px;border-radius:8px;background:var(--soft) center top/cover no-repeat}
+.pend .th{width:64px;height:80px;border-radius:8px;background:var(--soft) center top/cover no-repeat;border:1px solid var(--line);padding:0;position:relative}
+.pend .th::after{content:'⤢';position:absolute;right:3px;bottom:3px;font-size:11px;background:rgba(0,0,0,.55);color:#fff;border-radius:5px;padding:0 4px}
 .pend .fields{display:flex;flex-direction:column;gap:6px;min-width:0}
 .pend input,.pend select{font-size:14px;border:1px solid var(--line);border-radius:8px;padding:7px 8px;background:var(--surface);width:100%}
 .pend .rm{border:0;background:transparent;color:var(--muted);font-size:18px;padding:4px 6px}
@@ -141,7 +142,7 @@ const CAT_WORDS={
   '중식':['짜장','짬뽕','탕수육','마라','마파','꿔바로우','깐풍','유린기','볶음밥','딤섬','양장피','고추잡채','멘보샤','훠궈'],
   '일식':['스시','초밥','우동','라멘','돈부리','덮밥','규동','가츠','돈카츠','오코노미','타코야키','야키소바','소바','오니기리','미소','카레','텐동','사케동'],
   '양식':['파스타','스파게티','리조또','스테이크','피자','샐러드','그라탕','라자냐','수프','샌드위치','버거','감바스','뇨끼','오믈렛','브런치','크림','토마토'],
-  '한식':['김치','된장','고추장','찌개','국','탕','전','나물','불고기','제육','갈비','잡채','비빔','무침','조림','볶음','찜','장아찌','김치볶음밥','수육','보쌈','떡국','냉면','칼국수','죽','반찬','계란말이','미역']
+  '한식':['야채찜','수육','보쌈','쌈','김치','된장','고추장','찌개','국','탕','전','나물','불고기','제육','갈비','잡채','비빔','무침','조림','볶음','찜','장아찌','김치볶음밥','수육','보쌈','떡국','냉면','칼국수','죽','반찬','계란말이','미역']
 };
 const STOP=['재료','만드는','만들기','방법','분량','인분','준비','시간','좋아요','댓글','공유','저장','팔로우','더보기','광고','레시피','tip','TIP','Tip','http','www','@','#','g ','ml','큰술','작은술','스푼','컵'];
 
@@ -202,6 +203,7 @@ function cleanTitle(t){
     .replace(/[()]/g,' ').replace(/\s+/g,' ').replace(/^[\s.,\-~·]+|[\s.,\-~·]+$/g,'').trim();
 }
 const DISH_WORDS=Object.values(CAT_WORDS).flat().map(w=>w.trim()).filter(w=>w.length>=2);
+const DISH_SUFFIX=['찜','국','탕','전','죽','밥','면','볶음','구이','조림','무침','김치','샐러드','수프','라떼','청'];
 function nameCandidates(res){
   if(!res||!res.lines||!res.lines.length)return [];
   const maxY=Math.max(...res.lines.map(l=>l.top+l.height),1), seen=new Set(), out=[];
@@ -210,16 +212,23 @@ function nameCandidates(res){
     if(!raw||/\d{1,2}:\d{2}/.test(raw)||/\d+\s*월\s*\d+\s*일/.test(raw))return;
     if(UI_NOISE.some(w=>raw.includes(w)))return;
     if(QTY.test(raw)||/재료|:/.test(raw))return;
-    const t=cleanTitle(raw);
+    const t=cleanTitle(raw.replace(/^[A-Za-z0-9._]{3,}\s+/,''));
     if(t.length<2||t.length>22||!/[가-힣]/.test(t))return;
-    if(/(요|다|죠|니다|세요|네요|해요)[.!~\s]*$/.test(t)||/[!?]{2,}/.test(raw))return;
-    if((t.match(/\s/g)||[]).length>4)return;
-    if(seen.has(t))return; seen.add(t);
+    if(/[!?]{2,}/.test(raw))return;
+    // '소고기야채찜이예요' → '소고기야채찜'
+    const t2=t.replace(/\s*(이에요|이예요|예요|에요|입니다|이랍니다|랍니다|이죠|이지요|이네요)[.!~^\s]*$/,'').trim();
+    if(t2.length<2)return;
+    if((t2.match(/\s/g)||[]).length>4)return;
+    if(seen.has(t2))return; seen.add(t2);
     const pos=l.top/maxY;
     let sc=(l.height||1)*(1.5-pos);
-    if(DISH_WORDS.some(w=>t.includes(w)))sc*=1.8;
+    const dish=DISH_WORDS.some(w=>t2.includes(w))||DISH_SUFFIX.some(w=>t2.endsWith(w));
+    if(dish)sc*=2.2;
+    if(!/\s/.test(t2)&&t2.length>=3&&t2.length<=12)sc*=1.3;          // 띄어쓰기 없는 짧은 이름
+    if(/(는데|더니|하고|나면|니다|어요|아요|해요|세요|었|았|겠|하는|되는|되고|좋아|같아|있는|없는|이거|그동안)/.test(t2))sc*=0.25; // 문장
+    if(t2!==t)sc*=dish?1.1:0.7;                                       // '~이에요'로 끝나던 줄
     if(pos>0.8)sc*=0.6;
-    out.push({text:t,score:sc});
+    out.push({text:t2,score:sc});
   });
   return out.sort((a,b)=>b.score-a.score);
 }
@@ -316,12 +325,13 @@ function drawPending(){
   box.innerHTML='';
   pending.forEach(p=>{
     const row=document.createElement('div'); row.className='pend'; row.dataset.id=p.id;
-    row.innerHTML=`<div class="th" style="${p.thumbU?`background-image:url('${p.thumbU}')`:''}"></div>
+    row.innerHTML=`<button type="button" class="th" aria-label="사진 크게 보기" style="${p.thumbU?`background-image:url('${p.thumbU}')`:''}"></button>
       <div class="fields"><input placeholder="메뉴명" value="${esc(p.name)}" aria-label="메뉴명"><select aria-label="카테고리">${cats.map(c=>`<option ${c===p.cat?'selected':''}>${esc(c)}</option>`).join('')}</select>
       ${(p.cands||[]).filter(c=>c!==p.name).length?`<div class="cands">${p.cands.filter(c=>c!==p.name).slice(0,5).map(c=>`<button type="button" class="cand">${esc(c)}</button>`).join('')}</div>`:''}
       ${p.status?`<span class="st">${p.status==='읽는 중…'?'<span class="busy"><i class="spin"></i>사진 속 글자 읽는 중…</span>':esc(p.status)}</span>`:''}</div>
       <button type="button" class="rm" aria-label="빼기">✕</button>`;
     const inp=row.querySelector('input'), sel=row.querySelector('select');
+    row.querySelector('.th').onclick=()=>{if(!p.file)return;if(p.zoomU)URL.revokeObjectURL(p.zoomU);p.zoomU=URL.createObjectURL(p.file);$('zoomImg').src=p.zoomU;$('zoom').hidden=false;$('zoom').scrollTop=0};
     inp.oninput=()=>{p.name=inp.value;p.edited=true}; sel.onchange=()=>{p.cat=sel.value;p.edited=true};
     row.querySelectorAll('.cand').forEach(b=>b.onclick=()=>{p.name=b.textContent;p.edited=true;if(!p.catEdited)p.cat=guessCat(p.name,p.text);drawPending()});
     sel.addEventListener('change',()=>{p.catEdited=true});
